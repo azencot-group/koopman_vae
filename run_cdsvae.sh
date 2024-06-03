@@ -1,13 +1,1 @@
-python3 train_cdsvae.py \
-       --gpu 4 \
-       --nEpoch 100 \
-       --log_dir logs \
-       --lr 0.001 \
-       --batch_size 128 \
-       --weight_f 1 \
-       --weight_z 1 \
-       --weight_c_aug 10 \
-       --weight_m_aug 10 \
-       --sche const \
-       --type_gt action \
-       --note new_rep
+python3 train_cdsvae.py --gpu 0 --nEpoch 100 --log_dir logs_as_is --lr 0.001 --batch_size 128 --weight_f 1 --weight_z 1 --sche const --type_gt action --note new_rep

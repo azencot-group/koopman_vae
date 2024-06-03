@@ -33,8 +33,6 @@ parser.add_argument('--loss_recon',    default='L2', type=str, help='reconstruct
 parser.add_argument('--note',    default='', type=str, help='appx note')
 parser.add_argument('--weight_f',      default=1,    type=float,help='weighting on KL to prior, content vector')
 parser.add_argument('--weight_z',      default=1,    type=float,help='weighting on KL to prior, motion vector')
-parser.add_argument('--weight_c_aug',      default=1,    type=float,help='weighting on content contrastive loss')
-parser.add_argument('--weight_m_aug',      default=1,    type=float,help='weighting on motion contrastive loss')
 parser.add_argument('--gpu',           default='0',  type=str,help='index of GPU to use')
 parser.add_argument('--sche',          default='cosine', type=str, help='scheduler')
 
@@ -109,8 +107,8 @@ def main(opt):
         pred1_all, pred2_all, label2_all = list(), list(), list()
         label_gt = list()
         for i, data in enumerate(test_loader):
-            x, label_A, label_D, c_aug, m_aug = reorder(data['images']), data['A_label'], data['D_label'], reorder(data['c_aug']), reorder(data['m_aug'])
-            x, label_A, label_D, c_aug, m_aug = x.cuda(), label_A.cuda(), label_D.cuda(), c_aug.cuda(), m_aug.cuda()
+            x, label_A, label_D = reorder(data['images']), data['A_label'], data['D_label']
+            x, label_A, label_D = x.cuda(), label_A.cuda(), label_D.cuda()
 
             if opt.type_gt == "action":
                 recon_x_sample, recon_x = cdsvae.forward_fixed_motion_for_classification(x)
