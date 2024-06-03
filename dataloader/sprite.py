@@ -1,19 +1,13 @@
-import random
-import os
 import numpy as np
-import socket
-import torch
-from scipy import misc
+from torch.utils.data import Dataset
 
-class Sprite(object):
+
+class Sprite(Dataset):
     def __init__(self, train, data, A_label, D_label, c_aug, m_aug):
         self.data = data
         self.A_label = A_label
         self.D_label = D_label
         self.N = self.data.shape[0]
-        self.c_aug = c_aug
-        self.m_aug = m_aug
-        self.aug_num = c_aug.shape[1]
 
     def set_seed(self, seed):
         if not self.seed_is_set:
@@ -24,12 +18,8 @@ class Sprite(object):
         return self.N
 
     def __getitem__(self, index):
-        data_ancher = self.data[index] # (8, 64, 64, 3)
-        A_label_ancher = self.A_label[index] # (4,)
-        D_label_ancher = self.D_label[index] # ()
-        idx = np.random.randint(self.aug_num)
-        c_aug_anchor = self.c_aug[index][idx] # (8, 64, 64, 3)
-        m_aug_anchor = self.m_aug[index][idx] # (8, 64, 64, 3)
+        data = self.data[index]  # (8, 64, 64, 3)
+        A_label = self.A_label[index]  # (4,)
+        D_label = self.D_label[index]  # ()
 
-        return {"images": data_ancher, "c_aug": c_aug_anchor, "m_aug": m_aug_anchor, "A_label": A_label_ancher, "D_label": D_label_ancher, "index": index}
-
+        return {"images": data, "A_label": A_label, "D_label": D_label, "index": index}
