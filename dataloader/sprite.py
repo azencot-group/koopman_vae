@@ -3,7 +3,7 @@ from torch.utils.data import Dataset
 
 
 class Sprite(Dataset):
-    def __init__(self, train, data, A_label, D_label, c_aug, m_aug):
+    def __init__(self, data, A_label, D_label):
         self.data = data
         self.A_label = A_label
         self.D_label = D_label
