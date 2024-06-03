@@ -11,8 +11,6 @@ python test_sprite_cls.py \
     --lr 0.001 \
     --weight_f 1 \
     --weight_z 1 \
-    --weight_c_aug 10 \
-    --weight_m_aug 10 \
     --sche const \
     --model_epoch 100 \
     --model_dir ./ckpts/Sprite

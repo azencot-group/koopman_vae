@@ -41,9 +41,9 @@ def load_dataset(opt):
 
         print("finish loading!")
 
-        train_data = Sprite(train=True, data=X_train, A_label=A_train,
+        train_data = Sprite(data=X_train, A_label=A_train,
                             D_label=D_train)
-        test_data = Sprite(train=False, data=X_test, A_label=A_test,
+        test_data = Sprite(data=X_test, A_label=A_test,
                            D_label=D_test)
 
     return train_data, test_data
