@@ -22,7 +22,7 @@ hostname = socket.gethostname()
 
 def load_dataset(opt):
     if opt.dataset == 'Sprite':
-        data = pickle.load(open('../dataset/Sprite/data.pkl', 'rb'))
+        data = pickle.load(open('data/data.pkl', 'rb'))
         X_train, X_test, A_train, A_test = data['X_train'], data['X_test'], data['A_train'], data['A_test']
         D_train, D_test = data['D_train'], data['D_test']
         c_augs_train, c_augs_test = data['c_augs_train'], data['c_augs_test']
