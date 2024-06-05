@@ -8,7 +8,7 @@ import numpy as np
 import os
 import argparse
 import math
-
+import neptune
 import torch
 import torch.optim as optim
 import torch.nn as nn
@@ -104,11 +104,19 @@ def train(x, label_A, label_D, model, optimizer, opt, mode="train"):
 
 
 def main(opt):
-    name = 'CDSVAE_Sprite_epoch-{}_bs-{}_decoder={}{}x{}-rnn_size={}-g_dim={}-f_dim={}-z_dim={}-lr={}' \
-           '-weight:kl_f={}-kl_z={}-sche_{}-{}'.format(
+    # Initialize neptune.
+    run = neptune.init_run(project="azencot-group/koopman-vae",
+                           api_token="eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vYXBwLm5lcHR1bmUuYWkiLCJhcGlfdXJsIjoiaHR0cHM6Ly9hcHAubmVwdHVuZS5haSIsImFwaV9rZXkiOiJlNjg4NDkxMS04N2NhLTRkOTctYjY0My05NDY2OGU0NGJjZGMifQ==",
+                           )
+
+    name = "CDSVAE_Sprite_epoch-{}_bs-{}_decoder={}{}x{}-rnn_size={}-g_dim={}-f_dim={}-z_dim={}-lr={}-weight:kl_f={}-kl_z={}-sche_{}-{}".format(
         opt.nEpoch, opt.batch_size, opt.decoder, opt.image_width, opt.image_width, opt.rnn_size, opt.g_dim, opt.f_dim,
         opt.z_dim, opt.lr,
         opt.weight_f, opt.weight_z, opt.loss_recon, opt.sche, opt.note)
+
+    # Log the hyperparameters used and the name.
+    run['config/hyperparameters'] = vars(opt)
+    run['config/name'] = name
 
     opt.log_dir = '%s/%s/%s' % (opt.log_dir, opt.dataset, name)
 
@@ -190,6 +198,9 @@ def main(opt):
     # --------- training loop ------------------------------------
     cur_step = 0
     for epoch in range(opt.nEpoch):
+        # Log the number of the epoch.
+        run['epoch'] = epoch
+
         if epoch and scheduler is not None:
             scheduler.step()
 
@@ -219,12 +230,19 @@ def main(opt):
                                         optimizer, opt)
 
             lr = optimizer.param_groups[0]['lr']
+
             if writer is not None:
                 writer.add_scalar("lr", lr, cur_step)
                 writer.add_scalar("Train/mse", recon.item(), cur_step)
                 writer.add_scalar("Train/kld_f", kld_f.item(), cur_step)
                 writer.add_scalar("Train/kld_z", kld_z.item(), cur_step)
                 cur_step += 1
+
+            # Log the losses and lr.
+            run['train/lr'].append(lr)
+            run['train/mse'].append(recon.item())
+            run['train/kld_f'].append(kld_f.item())
+            run['train/kld_z'].append(kld_z.item())
 
             epoch_loss.update(recon, kld_f, kld_z)
             if i % 100 == 0 and i:
@@ -269,7 +287,18 @@ def main(opt):
                 writer.add_scalar("Val/kld_f", val_kld_f.item() / n_batch, epoch)
                 writer.add_scalar("Val/kld_z", val_kld_z.item() / n_batch, epoch)
 
-    torch.save(cdsvae.state_dict(), "/home/azencot_group/inon/koopman_vae/saved_models/model_no_mi_nEpochs_3.pth")
+            # Log the losses.
+            run['test/mse'].append(val_mse.item() / n_batch)
+            run['test/kld_f'].append(val_kld_f.item() / n_batch)
+            run['test/kld_z'].append(val_kld_z.item() / n_batch)
+
+    run.stop()
+
+    # Save the model.
+    model_name = name + ".pth"
+    model_dir_path = "/cs/cs_groups/azencot_group/inon/koopman_vae/saved_models"
+    model_path = os.path.join(model_dir_path, model_name)
+    torch.save(cdsvae.state_dict(), model_path)
 
 
 # X, X, 64, 64, 3 -> # X, X, 3, 64, 64

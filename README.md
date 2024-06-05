@@ -5,7 +5,7 @@ to receive better entanglements.
 ## Roadmap 
 The roadmap of the project is as follows: 
 - [X] Copy the base implementation of C-DSVAE
-- [ ] Remove the mutual information losses from it (as they are irrelevant for our purpose)
+- [X] Remove the mutual information losses from it (as they are irrelevant for our purpose)
 - [ ] Connect the LSTM directly to the decoder.
 - [ ] Add Koopman layer and further losses in the "middle".
 

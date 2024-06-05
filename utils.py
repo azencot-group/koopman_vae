@@ -29,7 +29,7 @@ def load_npy(path):
 def load_dataset(opt):
     if opt.dataset == 'Sprite':
         # Set the path of the directory.
-        dir_path = "/home/azencot_group/datasets/SPRITES_ICML/datasetICML"
+        dir_path = "/cs/cs_groups/azencot_group/datasets/SPRITES_ICML/datasetICML"
 
         # Load the train and the test data.
         X_train = load_npy(os.path.join(dir_path, "sprites_X_train.npy"))
