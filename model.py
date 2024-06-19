@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
+from utils import imshow_seqeunce
 from collections import OrderedDict
 
 
@@ -10,11 +11,11 @@ class LinearUnit(nn.Module):
         super(LinearUnit, self).__init__()
         if batchnorm is True:
             self.model = nn.Sequential(
-                    nn.Linear(in_features, out_features),
-                    nn.BatchNorm1d(out_features), nonlinearity)
+                nn.Linear(in_features, out_features),
+                nn.BatchNorm1d(out_features), nonlinearity)
         else:
             self.model = nn.Sequential(
-                    nn.Linear(in_features, out_features), nonlinearity)
+                nn.Linear(in_features, out_features), nonlinearity)
 
     def forward(self, x):
         return self.model(x)
@@ -24,10 +25,10 @@ class conv(nn.Module):
     def __init__(self, nin, nout):
         super(conv, self).__init__()
         self.main = nn.Sequential(
-                nn.Conv2d(nin, nout, 4, 2, 1),
-                nn.BatchNorm2d(nout),
-                nn.LeakyReLU(0.2, inplace=True),
-                )
+            nn.Conv2d(nin, nout, 4, 2, 1),
+            nn.BatchNorm2d(nout),
+            nn.LeakyReLU(0.2, inplace=True),
+        )
 
     def forward(self, input):
         return self.main(input)
@@ -48,10 +49,10 @@ class encoder(nn.Module):
         self.c4 = conv(nf * 4, nf * 8)
         # state size. (nf*8) x 4 x 4
         self.c5 = nn.Sequential(
-                nn.Conv2d(nf * 8, dim, 4, 1, 0),
-                nn.BatchNorm2d(dim),
-                nn.Tanh()
-                )
+            nn.Conv2d(nf * 8, dim, 4, 1, 0),
+            nn.BatchNorm2d(dim),
+            nn.Tanh()
+        )
 
     def forward(self, input):
         h1 = self.c1(input)
@@ -66,10 +67,10 @@ class upconv(nn.Module):
     def __init__(self, nin, nout):
         super(upconv, self).__init__()
         self.main = nn.Sequential(
-                nn.ConvTranspose2d(nin, nout, 4, 2, 1),
-                nn.BatchNorm2d(nout),
-                nn.LeakyReLU(0.2, inplace=True),
-                )
+            nn.ConvTranspose2d(nin, nout, 4, 2, 1),
+            nn.BatchNorm2d(nout),
+            nn.LeakyReLU(0.2, inplace=True),
+        )
 
     def forward(self, input):
         return self.main(input)
@@ -81,11 +82,11 @@ class decoder(nn.Module):
         self.dim = dim
         nf = 64
         self.upc1 = nn.Sequential(
-                # input is Z, going into a convolution
-                nn.ConvTranspose2d(dim, nf * 8, 4, 1, 0),
-                nn.BatchNorm2d(nf * 8),
-                nn.LeakyReLU(0.2, inplace=True)
-                )
+            # input is Z, going into a convolution
+            nn.ConvTranspose2d(dim, nf * 8, 4, 1, 0),
+            nn.BatchNorm2d(nf * 8),
+            nn.LeakyReLU(0.2, inplace=True)
+        )
         # state size. (nf*8) x 4 x 4
         self.upc2 = upconv(nf * 8, nf * 4)
         # state size. (nf*4) x 8 x 8
@@ -94,10 +95,10 @@ class decoder(nn.Module):
         self.upc4 = upconv(nf * 2, nf)
         # state size. (nf) x 32 x 32
         self.upc5 = nn.Sequential(
-                nn.ConvTranspose2d(nf, nc, 4, 2, 1),
-                nn.Sigmoid()
-                # state size. (nc) x 64 x 64
-                )
+            nn.ConvTranspose2d(nf, nc, 4, 2, 1),
+            nn.Sigmoid()
+            # state size. (nc) x 64 x 64
+        )
 
     def forward(self, input):
         d1 = self.upc1(input.view(-1, self.dim, 1, 1))
@@ -199,7 +200,6 @@ class CDSVAE(nn.Module):
         recon_x = self.decoder(zf)
         return f_mean, f_logvar, f_post, z_mean_post, z_logvar_post, z_post, z_mean_prior, z_logvar_prior, recon_x
 
-
     def forward_fixed_content(self, x):
         z_mean_prior, z_logvar_prior, _ = self.sample_z(x.size(0), random_sampling=self.training)
         f_mean, f_logvar, f_post, z_mean_post, z_logvar_post, z_post = self.encode_and_sample_post(x)
@@ -220,7 +220,6 @@ class CDSVAE(nn.Module):
         zf = torch.cat((z_mean_prior, f_expand), dim=2)
         recon_x_sample = self.decoder(zf)
 
-
         zf = torch.cat((z_mean_post, f_expand), dim=2)
         recon_x = self.decoder(zf)
 
@@ -231,7 +230,7 @@ class CDSVAE(nn.Module):
         f_mean, f_logvar, f_post, z_mean_post, z_logvar_post, z_post = self.encode_and_sample_post(x)
 
         f_prior = self.reparameterize(torch.zeros(f_mean.shape).cuda(), torch.zeros(f_logvar.shape).cuda(),
-                                        random_sampling=True)
+                                      random_sampling=True)
         f_expand = f_prior.unsqueeze(1).expand(-1, self.frames, self.f_dim)
         zf = torch.cat((z_mean_post, f_expand), dim=2)
         recon_x_sample = self.decoder(zf)
@@ -327,7 +326,7 @@ class CDSVAE(nn.Module):
                 z_out = torch.cat((z_out, z_prior.unsqueeze(1)), dim=1)
                 z_means = torch.cat((z_means, z_mean_t.unsqueeze(1)), dim=1)
                 z_logvars = torch.cat((z_logvars, z_logvar_t.unsqueeze(1)), dim=1)
-            z_t = z_post[:,i,:]
+            z_t = z_post[:, i, :]
         return z_means, z_logvars, z_out
 
     # If random sampling is true, reparametrization occurs else z_t is just set to the mean
@@ -366,7 +365,29 @@ class CDSVAE(nn.Module):
         return z_means, z_logvars, z_out
 
 
-class classifier_Sprite_all(nn.Module):                                                                                                                                           
+    def swap(self, x, first_idx, second_idx, plot=True):
+        s_mean, s_logvar, s, d_mean_post, d_logvar_post, d = self.encode_and_sample_post(x)
+        s1, d1 = s_mean[first_idx][None, :].expand(self.frames, s.shape[-1]), d_mean_post[0]
+        s2, d2 = s_mean[second_idx][None, :].expand(self.frames, s.shape[-1]), d_mean_post[1]
+
+        s1d2 = torch.cat((d2, s1), dim=1)
+        s2d1 = torch.cat((d1, s2), dim=1)
+
+        sd = torch.stack([s1d2, s2d1])
+
+        recon_s1_d2 = self.decoder(s1d2[None,:, :])
+        recon_s2_d1 = self.decoder(s2d1[None,:, :])
+
+        # visualize
+        if plot:
+            titles = ['S{}'.format(first_idx), 'S{}'.format(second_idx), 'S{}d{}s'.format(second_idx, first_idx), 'S{}d{}s'.format(first_idx, second_idx)]
+            imshow_seqeunce([[x[first_idx]], [x[second_idx]], [recon_s2_d1.squeeze()], [recon_s1_d2.squeeze()]],
+                            plot=plot, titles=np.asarray([titles]).T, figsize=(50, 10), fontsize=50)
+
+        return recon_s1_d2, recon_s2_d1
+
+
+class classifier_Sprite_all(nn.Module):
     def __init__(self, opt):
         super(classifier_Sprite_all, self).__init__()
         self.g_dim = opt.g_dim  # frame feature
@@ -379,26 +400,25 @@ class classifier_Sprite_all(nn.Module):
         self.cls_skin = nn.Sequential(
             nn.Linear(self.hidden_dim * 2, self.hidden_dim),
             nn.ReLU(True),
-            nn.Linear(self.hidden_dim, 6)) 
+            nn.Linear(self.hidden_dim, 6))
         self.cls_top = nn.Sequential(
             nn.Linear(self.hidden_dim * 2, self.hidden_dim),
             nn.ReLU(True),
-            nn.Linear(self.hidden_dim, 6)) 
+            nn.Linear(self.hidden_dim, 6))
         self.cls_pant = nn.Sequential(
             nn.Linear(self.hidden_dim * 2, self.hidden_dim),
             nn.ReLU(True),
-            nn.Linear(self.hidden_dim, 6)) 
+            nn.Linear(self.hidden_dim, 6))
         self.cls_hair = nn.Sequential(
             nn.Linear(self.hidden_dim * 2, self.hidden_dim),
             nn.ReLU(True),
-            nn.Linear(self.hidden_dim, 6)) 
+            nn.Linear(self.hidden_dim, 6))
         self.cls_action = nn.Sequential(
             nn.Linear(self.hidden_dim * 2, self.hidden_dim),
             nn.ReLU(True),
-            nn.Linear(self.hidden_dim, 9)) 
+            nn.Linear(self.hidden_dim, 9))
 
-
-    def encoder_frame(self, x): 
+    def encoder_frame(self, x):
         # input x is list of length Frames [batchsize, channels, size, size]
         # convert it to [batchsize, frames, channels, size, size]
         # x = torch.stack(x, dim=1)
@@ -407,9 +427,9 @@ class classifier_Sprite_all(nn.Module):
         x = x.view(-1, x_shape[-3], x_shape[-2], x_shape[-1])
         x_embed = self.encoder(x)[0]
         # to [batch_size , frames, embed_dim]
-        return x_embed.view(x_shape[0], x_shape[1], -1) 
+        return x_embed.view(x_shape[0], x_shape[1], -1)
 
-    def forward(self, x): 
+    def forward(self, x):
         conv_x = self.encoder_frame(x)
         # pass the bidirectional lstm
         lstm_out, _ = self.bilstm(conv_x)
@@ -418,4 +438,3 @@ class classifier_Sprite_all(nn.Module):
         lstm_out_f = torch.cat((frontal, backward), dim=1)
         return self.cls_action(lstm_out_f), self.cls_skin(lstm_out_f), self.cls_pant(lstm_out_f), \
                self.cls_top(lstm_out_f), self.cls_hair(lstm_out_f)
-
