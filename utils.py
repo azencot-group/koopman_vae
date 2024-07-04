@@ -25,25 +25,24 @@ def load_npy(path):
     with open(path, 'rb') as f:
         return np.load(f)
 
-def load_dataset(opt):
-    if opt.dataset == 'Sprite':
-        # Set the path of the directory.
-        dir_path = "/cs/cs_groups/azencot_group/datasets/SPRITES_ICML/datasetICML"
+def load_dataset(args):
+    # Set the path of the directory.
+    dir_path = args.dataset_path
 
-        # Load the train and the test data.
-        X_train = load_npy(os.path.join(dir_path, "sprites_X_train.npy"))
-        X_test = load_npy(os.path.join(dir_path, "sprites_X_test.npy"))
-        A_train = load_npy(os.path.join(dir_path, "sprites_A_train.npy"))
-        A_test = load_npy(os.path.join(dir_path, "sprites_A_test.npy"))
-        D_train = load_npy(os.path.join(dir_path, "sprites_D_train.npy"))
-        D_test = load_npy(os.path.join(dir_path, "sprites_D_test.npy"))
+    # Load the train and the test data.
+    X_train = load_npy(os.path.join(dir_path, "sprites_X_train.npy"))
+    X_test = load_npy(os.path.join(dir_path, "sprites_X_test.npy"))
+    A_train = load_npy(os.path.join(dir_path, "sprites_A_train.npy"))
+    A_test = load_npy(os.path.join(dir_path, "sprites_A_test.npy"))
+    D_train = load_npy(os.path.join(dir_path, "sprites_D_train.npy"))
+    D_test = load_npy(os.path.join(dir_path, "sprites_D_test.npy"))
 
-        print("finish loading!")
+    print("finish loading!")
 
-        train_data = Sprite(data=X_train, A_label=A_train,
-                            D_label=D_train)
-        test_data = Sprite(data=X_test, A_label=A_test,
-                           D_label=D_test)
+    train_data = Sprite(data=X_train, A_label=A_train,
+                        D_label=D_train)
+    test_data = Sprite(data=X_test, A_label=A_test,
+                       D_label=D_test)
 
     return train_data, test_data
 
@@ -125,10 +124,6 @@ def np_to_t(X, device='cuda'):
         X = torch.from_numpy(X.astype(np.float32)).to(device)
     return X
 
-def load_checkpoint(model, checkpoint_name):
-    print("Loading Checkpoint from '{}'".format(checkpoint_name))
-    checkpoint = torch.load(checkpoint_name)
-    model.load_state_dict(checkpoint['state_dict'])
 
 def imshow_seqeunce(DATA, plot=True, titles=None, figsize=(50, 10), fontsize=50):
     rc = 2 * len(DATA[0])

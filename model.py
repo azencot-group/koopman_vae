@@ -112,15 +112,15 @@ class decoder(nn.Module):
 
 
 class CDSVAE(nn.Module):
-    def __init__(self, opt):
+    def __init__(self, args):
         super(CDSVAE, self).__init__()
-        self.f_dim = opt.f_dim  # content
-        self.z_dim = opt.z_dim  # motion
-        self.g_dim = opt.g_dim  # frame feature
-        self.channels = opt.channels  # frame feature
-        self.hidden_dim = opt.rnn_size
-        self.f_rnn_layers = opt.f_rnn_layers
-        self.frames = opt.frames
+        self.f_dim = args.f_dim  # content
+        self.z_dim = args.z_dim  # motion
+        self.g_dim = args.g_dim  # frame feature
+        self.channels = args.channels  # frame feature
+        self.hidden_dim = args.rnn_size
+        self.f_rnn_layers = args.f_rnn_layers
+        self.frames = args.frames
 
         # Frame encoder and decoder
         self.encoder = encoder(self.g_dim, self.channels)
@@ -388,12 +388,12 @@ class CDSVAE(nn.Module):
 
 
 class classifier_Sprite_all(nn.Module):
-    def __init__(self, opt):
+    def __init__(self, args):
         super(classifier_Sprite_all, self).__init__()
-        self.g_dim = opt.g_dim  # frame feature
-        self.channels = opt.channels  # frame feature
-        self.hidden_dim = opt.rnn_size
-        self.frames = opt.frames
+        self.g_dim = args.g_dim  # frame feature
+        self.channels = args.channels  # frame feature
+        self.hidden_dim = args.rnn_size
+        self.frames = args.frames
         from model import encoder
         self.encoder = encoder(self.g_dim, self.channels)
         self.bilstm = nn.LSTM(self.g_dim, self.hidden_dim, 1, bidirectional=True, batch_first=True)
