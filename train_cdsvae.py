@@ -131,11 +131,9 @@ def train(args, model):
                     run['test/kld_f'].append(kld_f)
                     run['test/kld_z'].append(kld_z)
 
+            # Save the net in the middle.
             net2save = model.module if torch.cuda.device_count() > 1 else model
-            torch.save({
-                'model': net2save.state_dict(),
-                'optimizer': args.optimizer.state_dict()},
-                '%s/model%d.pth' % (args.current_training_logs_dir, epoch))
+            torch.save(net2save.state_dict(), '%s/model%d.pth' % (args.current_training_logs_dir, epoch))
 
     # Stop the neptune run.
     run.stop()
