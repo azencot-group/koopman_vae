@@ -30,7 +30,6 @@ parser.add_argument('--z_dim',        default=32,type=int, help='dimensionality 
 parser.add_argument('--g_dim',        default=128,type=int, help='dimensionality of encoder output vector and decoder input vector')
 
 parser.add_argument('--loss_recon',    default='L2', type=str, help='reconstruction loss: L1, L2')
-parser.add_argument('--note',    default='', type=str, help='appx note')
 parser.add_argument('--weight_f',      default=1,    type=float,help='weighting on KL to prior, content vector')
 parser.add_argument('--weight_z',      default=1,    type=float,help='weighting on KL to prior, motion vector')
 parser.add_argument('--gpu',           default='0',  type=str,help='index of GPU to use')

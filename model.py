@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import numpy as np
 from utils import imshow_seqeunce
 from collections import OrderedDict
@@ -114,6 +113,8 @@ class decoder(nn.Module):
 class CDSVAE(nn.Module):
     def __init__(self, args):
         super(CDSVAE, self).__init__()
+
+        # Net structure.
         self.f_dim = args.f_dim  # content
         self.z_dim = args.z_dim  # motion
         self.g_dim = args.g_dim  # frame feature
@@ -138,9 +139,40 @@ class CDSVAE(nn.Module):
         self.f_logvar = LinearUnit(self.hidden_dim * 2, self.f_dim, False)
 
         self.z_rnn = nn.RNN(self.hidden_dim * 2, self.hidden_dim, batch_first=True)
+
         # Each timestep is for each z so no reshaping and feature mixing
         self.z_mean = nn.Linear(self.hidden_dim, self.z_dim)
         self.z_logvar = nn.Linear(self.hidden_dim, self.z_dim)
+
+        # The loss function.
+        self.loss_func = nn.MSELoss()
+
+        # The loss weights.
+        self.kld_f_weight = args.weight_f
+        self.kld_z_weight = args.weight_z
+
+    def loss(self, x, outputs):
+        f_mean, f_logvar, f, z_post_mean, z_post_logvar, z_post, z_prior_mean, z_prior_logvar, z_prior, recon_x = outputs
+
+        # Calculate the reconstruction loss.
+        reconstruction_loss = self.loss_func(recon_x, x)
+
+        # Calculate the kld_f.
+        f_mean = f_mean.view((-1, f_mean.shape[-1]))  # [128, 256]
+        f_logvar = f_logvar.view((-1, f_logvar.shape[-1]))  # [128, 256]
+        kld_f = -0.5 * torch.sum(1 + f_logvar - torch.pow(f_mean, 2) - torch.exp(f_logvar))
+
+        # Calculate the kld_z.
+        z_post_var = torch.exp(z_post_logvar)  # [128, 8, 32]
+        z_prior_var = torch.exp(z_prior_logvar)  # [128, 8, 32]
+        kld_z = 0.5 * torch.sum(z_prior_logvar - z_post_logvar +
+                                ((z_post_var + torch.pow(z_post_mean - z_prior_mean, 2)) / z_prior_var) - 1)
+
+        # Calculate the loss.
+        loss = reconstruction_loss + self.kld_f_weight*kld_f + self.kld_z_weight*kld_z
+
+        return loss, reconstruction_loss, kld_f, kld_z
+
 
     def encode_and_sample_post(self, x):
         if isinstance(x, list):
