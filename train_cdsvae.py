@@ -123,7 +123,7 @@ def train(args, model):
                     outputs = model(x)
 
                     # Calculate the losses.
-                    loss, reconstruction_loss, kld_f, kld_z = model.loss(x, outputs)
+                    loss, reconstruction_loss, kld_f, kld_z = model.loss(x, outputs, args.batch_size)
 
                     # Log the losses.
                     run['test/sum_loss_weighted'].append(loss)
