@@ -49,7 +49,7 @@ def define_args():
                         help='base directory to save the models during the training.')
     parser.add_argument('--checkpoint_dir', default=f'{project_working_directory}/checkpoints', type=str,
                         help='base directory to save the last checkpoint.')
-    parser.add_argument('--final_models', default=f'{project_working_directory}/final_models', type=str,
+    parser.add_argument('--final_models_dir', default=f'{project_working_directory}/final_models', type=str,
                         help='base directory to save the final models.')
 
     return parser
@@ -146,7 +146,7 @@ def train(args, model):
 
     # Save the model.
     net2save = model.module if torch.cuda.device_count() > 1 else model
-    torch.save(net2save.state_dict(), os.path.join(args.final_models, args.model_name + ".pth"))
+    torch.save(net2save.state_dict(), os.path.join(args.final_models_dir, args.model_name + ".pth"))
 
 
 # X, X, 64, 64, 3 -> # X, X, 3, 64, 64
@@ -228,10 +228,15 @@ if __name__ == '__main__':
     args.model_name = f"CDSVAE_Sprite_epoch-{args.epochs}_bs-{args.batch_size}_decoder={args.decoder}{args.image_width}x{args.image_width}-rnn_size={args.rnn_size}-g_dim={args.g_dim}-f_dim={args.f_dim}-z_dim={args.z_dim}-lr={args.lr}-weight:kl_f={args.weight_f}-kl_z={args.weight_z}-sche_{args.sche}"
 
     # Create the path of the checkpoint.
+    os.makedirs(args.checkpoint_dir, exist_ok=True)
     args.checkpoint_path = os.path.join(args.checkpoint_dir, args.model_name + ".pth")
 
     # Create the path of the training logs dir
     args.current_training_logs_dir = os.path.join(args.models_during_training_dir, args.model_name)
+    os.makedirs(args.current_training_logs_dir, exist_ok=True)
+
+    # Create the path of the final models dir.
+    os.makedirs(args.final_models_dir, exist_ok=True)
 
     # Log the hyperparameters used and the name.
     run['config/hyperparameters'] = vars(args)
