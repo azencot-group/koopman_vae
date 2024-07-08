@@ -88,5 +88,3 @@ if __name__ == '__main__':
     X = x.to(args.device)
 
     cdsvae.swap(X, 0, 1, plot=True)
-
-

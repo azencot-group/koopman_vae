@@ -145,13 +145,13 @@ class CDSVAE(nn.Module):
         self.z_logvar = nn.Linear(self.hidden_dim, self.z_dim)
 
         # The loss function.
-        self.loss_func = nn.MSELoss()
+        self.loss_func = nn.MSELoss(reduction="sum")
 
         # The loss weights.
         self.kld_f_weight = args.weight_f
         self.kld_z_weight = args.weight_z
 
-    def loss(self, x, outputs):
+    def loss(self, x, outputs, batch_size):
         f_mean, f_logvar, f, z_post_mean, z_post_logvar, z_post, z_prior_mean, z_prior_logvar, z_prior, recon_x = outputs
 
         # Calculate the reconstruction loss.
@@ -167,6 +167,11 @@ class CDSVAE(nn.Module):
         z_prior_var = torch.exp(z_prior_logvar)  # [128, 8, 32]
         kld_z = 0.5 * torch.sum(z_prior_logvar - z_post_logvar +
                                 ((z_post_var + torch.pow(z_post_mean - z_prior_mean, 2)) / z_prior_var) - 1)
+
+        # Normalize the losses by the batch size.
+        reconstruction_loss /= batch_size
+        kld_f /= batch_size
+        kld_z /= batch_size
 
         # Calculate the loss.
         loss = reconstruction_loss + self.kld_f_weight*kld_f + self.kld_z_weight*kld_z

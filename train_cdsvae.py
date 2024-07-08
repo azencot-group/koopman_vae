@@ -59,7 +59,9 @@ def set_seed_device(seed):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
     torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
+
 
     # Use cuda if available
     if torch.cuda.is_available():
@@ -70,8 +72,6 @@ def set_seed_device(seed):
 
 
 def train(args, model):
-    epoch_loss = Loss()
-
     # --------- training loop ------------------------------------
     for epoch in range(args.start_epoch, args.epochs):
         # Log the number of the epoch.
@@ -82,9 +82,6 @@ def train(args, model):
 
         # Notify the model about the training mode.
         model.train()
-
-        # Reset the losses for the following epoch.
-        epoch_loss.reset()
 
         # Perform the train part of the epoch.
         for i, data in tqdm(enumerate(train_loader)):
@@ -98,7 +95,7 @@ def train(args, model):
             outputs = model(x)
 
             # Calculate the losses.
-            loss, reconstruction_loss, kld_f, kld_z = model.loss(x, outputs)
+            loss, reconstruction_loss, kld_f, kld_z = model.loss(x, outputs, args.batch_size)
 
             # Log the losses and the learning rate.
             run['train/lr'].append(args.optimizer.param_groups[0]['lr'])
@@ -111,30 +108,29 @@ def train(args, model):
             loss.backward()
             args.optimizer.step()
 
-        # Perform evaluation for the model.
-        model.eval()
-        with torch.no_grad():
-            for i, data in enumerate(test_loader):
-                # Reorder the data dimensions as needed.
-                x = reorder(data['images']).to(args.device)
-
-                # Pass the data through the model.
-                outputs = model(x)
-
-                # Calculate the losses.
-                loss, reconstruction_loss, kld_f, kld_z = model.loss(x, outputs)
-
-                # Log the losses.
-                run['test/sum_loss_weighted'].append(loss)
-                run['test/reconstruction_loss'].append(reconstruction_loss)
-                run['test/kld_f'].append(kld_f)
-                run['test/kld_z'].append(kld_z)
-
-        # Save model checkpoint.
+        # Save the checkpoint.
         save_checkpoint(args.optimizer, model, epoch, args.checkpoint_path)
 
-        # Save the whole model when needed.
+        # Perform evaluation for the model.
         if epoch % args.evl_interval == 0:
+            model.eval()
+            with torch.no_grad():
+                for i, data in enumerate(test_loader):
+                    # Reorder the data dimensions as needed.
+                    x = reorder(data['images']).to(args.device)
+
+                    # Pass the data through the model.
+                    outputs = model(x)
+
+                    # Calculate the losses.
+                    loss, reconstruction_loss, kld_f, kld_z = model.loss(x, outputs)
+
+                    # Log the losses.
+                    run['test/sum_loss_weighted'].append(loss)
+                    run['test/reconstruction_loss'].append(reconstruction_loss)
+                    run['test/kld_f'].append(kld_f)
+                    run['test/kld_z'].append(kld_z)
+
             net2save = model.module if torch.cuda.device_count() > 1 else model
             torch.save({
                 'model': net2save.state_dict(),
