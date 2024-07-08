@@ -13,7 +13,7 @@ import numpy as np
 parser = argparse.ArgumentParser()
 parser.add_argument('--lr',      default=1.e-3, type=float, help='learning rate')
 parser.add_argument('--batch_size', default=64, type=int, help='batch size')
-parser.add_argument('--nEpoch',   default=300, type=int, help='number of epochs to train for')
+parser.add_argument('--epochs',   default=300, type=int, help='number of epochs to train for')
 parser.add_argument('--seed',    default=1, type=int, help='manual seed')
 parser.add_argument('--evl_interval',  default=10, type=int, help='evaluate every n epoch')
 parser.add_argument('--log_dir', default='./logs', type=str, help='base directory to save logs')
@@ -30,7 +30,6 @@ parser.add_argument('--z_dim',        default=32,type=int, help='dimensionality 
 parser.add_argument('--g_dim',        default=128,type=int, help='dimensionality of encoder output vector and decoder input vector')
 
 parser.add_argument('--loss_recon',    default='L2', type=str, help='reconstruction loss: L1, L2')
-parser.add_argument('--note',    default='', type=str, help='appx note')
 parser.add_argument('--weight_f',      default=1,    type=float,help='weighting on KL to prior, content vector')
 parser.add_argument('--weight_z',      default=1,    type=float,help='weighting on KL to prior, motion vector')
 parser.add_argument('--gpu',           default='0',  type=str,help='index of GPU to use')
@@ -41,32 +40,32 @@ parser.add_argument('--model_dir', default='', help='ckpt directory')
 parser.add_argument('--type_gt',  type=str, default='action', help='action, skin, top, pant, hair')
 parser.add_argument('--niter', type=int, default=300, help='number of runs for testing')
 
-opt = parser.parse_args()
+args = parser.parse_args()
 
 def reorder(sequence):
     return sequence.permute(0,1,4,2,3)
 
-os.environ['CUDA_VISIBLE_DEVICES'] = opt.gpu
+os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
 
 
-def main(opt):
-    if opt.model_dir != '':
-        saved_model = torch.load('%s/model%d.pth' % (opt.model_dir, opt.model_epoch))
-        model_dir = opt.model_dir
-        opt.model_dir = model_dir
+def main(args):
+    if args.model_dir != '':
+        saved_model = torch.load('%s/model%d.pth' % (args.model_dir, args.model_epoch))
+        model_dir = args.model_dir
+        args.model_dir = model_dir
     else:
         raise ValueError('missing checkpoint')
 
-    log = os.path.join(opt.log_dir, 'log.txt')
-    os.makedirs('%s/gen/' % opt.log_dir, exist_ok=True)
-    os.makedirs('%s/plots/' % opt.log_dir, exist_ok=True)
+    log = os.path.join(args.log_dir, 'log.txt')
+    os.makedirs('%s/gen/' % args.log_dir, exist_ok=True)
+    os.makedirs('%s/plots/' % args.log_dir, exist_ok=True)
     dtype = torch.cuda.FloatTensor
 
     print_log('Running parameters:')
-    print_log(json.dumps(vars(opt), indent=4, separators=(',', ':')), log)
+    print_log(json.dumps(vars(args), indent=4, separators=(',', ':')), log)
 
-    if opt.model_dir != '':
-        cdsvae = CDSVAE(opt)
+    if args.model_dir != '':
+        cdsvae = CDSVAE(args)
         if 'model' in saved_model:
             cdsvae.load_state_dict(saved_model['model'], strict=False)
         else:
@@ -80,25 +79,25 @@ def main(opt):
     print_log(cdsvae, log)
 
     # --------- load a dataset ------------------------------------
-    train_data, test_data = utils.load_dataset(opt)
+    train_data, test_data = utils.load_dataset(args)
     
     test_loader = DataLoader(test_data,
                              num_workers=4,
-                             batch_size=opt.batch_size,
+                             batch_size=args.batch_size,
                              shuffle=False,
                              drop_last=True,
                              pin_memory=True)
 
-    opt.g_dim = 128
-    opt.rnn_size = 256
-    classifier = classifier_Sprite_all(opt)
-    opt.resume = './judges/Sprite/sprite_judge.tar'
-    loaded_dict = torch.load(opt.resume)
+    args.g_dim = 128
+    args.rnn_size = 256
+    classifier = classifier_Sprite_all(args)
+    args.resume = './judges/Sprite/sprite_judge.tar'
+    loaded_dict = torch.load(args.resume)
     classifier.load_state_dict(loaded_dict['state_dict'])
     classifier = classifier.cuda().eval()
 
     # --------- training loop ------------------------------------
-    for epoch in range(opt.niter):
+    for epoch in range(args.niter):
 
         print("Epoch", epoch)
         cdsvae.eval()
@@ -110,7 +109,7 @@ def main(opt):
             x, label_A, label_D = reorder(data['images']), data['A_label'], data['D_label']
             x, label_A, label_D = x.cuda(), label_A.cuda(), label_D.cuda()
 
-            if opt.type_gt == "action":
+            if args.type_gt == "action":
                 recon_x_sample, recon_x = cdsvae.forward_fixed_motion_for_classification(x)
             else:
                 recon_x_sample, recon_x = cdsvae.forward_fixed_content_for_classification(x)
@@ -211,4 +210,4 @@ def print_log(print_string, log=None):
         log.close()
 
 if __name__ == '__main__':
-    main(opt)
+    main(args)

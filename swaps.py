@@ -5,6 +5,7 @@ from model import CDSVAE, classifier_Sprite_all
 import utils
 import numpy as np
 
+_PROJECT_WORKING_DIRECTORY = '/cs/cs_groups/azencot_group/inon/koopman_vae'
 
 def define_args():
     parser = argparse.ArgumentParser()
@@ -26,9 +27,11 @@ def define_args():
 
     parser.add_argument('--gpu', default='0', type=str, help='index of GPU to use')
     parser.add_argument('--sche', default='cosine', type=str, help='scheduler')
-
+    parser.add_argument('--weight_f', default=1, type=float, help='weighting on KL to prior, content vector')
+    parser.add_argument('--weight_z', default=1, type=float, help='weighting on KL to prior, motion vector')
     parser.add_argument('--model_epoch', type=int, default=None, help='ckpt epoch')
-    parser.add_argument('--models_dir', type=str, default=None, help='ckpt directory')
+
+    parser.add_argument('--model_path', type=str, default=None, help='ckpt directory')
     parser.add_argument('--model_name', type=str, default=None)
 
     return parser
@@ -64,17 +67,11 @@ if __name__ == '__main__':
     os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
 
     # Load the model.
-    if args.models_dir is not None:
-        saved_model = torch.load(os.path.join(args.models_dir, args.model_name))
-        models_dir = args.models_dir
-        args.models_dir = models_dir
+    if args.model_path is not None:
+        saved_model = torch.load(args.model_path)
     else:
         raise ValueError('missing checkpoint')
 
-    # Set the log files.
-    log = os.path.join(args.log_dir, 'log.txt')
-    os.makedirs('%s/gen/' % args.log_dir, exist_ok=True)
-    os.makedirs('%s/plots/' % args.log_dir, exist_ok=True)
     dtype = torch.cuda.FloatTensor
 
     # Create the model.
@@ -85,11 +82,9 @@ if __name__ == '__main__':
 
     # Load the data.
     data = np.load('/cs/cs_groups/azencot_group/inon/koopman_vae/dataset/batch1.npy', allow_pickle=True).item()
-    data2 = np.load('/cs/cs_groups/azencot_group/inon/SKD_for_kvae/dataset/batch2.npy', allow_pickle=True).item()
+    data2 = np.load('/cs/cs_groups/azencot_group/inon/koopman_vae/dataset/batch2.npy', allow_pickle=True).item()
     x, label_A, label_D = reorder(data['images']), data['A_label'][:, 0], data['D_label'][:, 0]
 
     X = x.to(args.device)
 
     cdsvae.swap(X, 0, 1, plot=True)
-
-
