@@ -51,6 +51,8 @@ def define_args():
     parser.add_argument('--conv_dim', type=int, default=32)
     parser.add_argument('--k_dim', default=40, type=int,
                         help='Dimensionality of the Koopman module.')
+    parser.add_argument('--hidden_size_koopman_multiplier', default=2, type=int,
+                        help='Multiplier for the k_dim in order to set the hidden size.')
 
 
     # Loss parameters.

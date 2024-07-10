@@ -44,6 +44,7 @@ class encoder(nn.Module):
         self.image_width = args.image_width
         self.conv_dim = args.conv_dim
         self.output_dim = args.k_dim
+        self.hidden_dim = args.hidden_size_koopman_multiplier*args.k_dim
         self.args = args
 
         # input is (nc) x 64 x 64
@@ -63,7 +64,7 @@ class encoder(nn.Module):
 
         # Declare the LSTM layer if needed.
         if args.lstm in ['encoder', 'both']:
-            self.lstm = nn.LSTM(self.output_dim, 2*self.output_dim, batch_first=True, bias=True,
+            self.lstm = nn.LSTM(self.output_dim, self.hidden_dim, batch_first=True, bias=True,
                                 bidirectional=False)
 
     def forward(self, x):
@@ -79,7 +80,7 @@ class encoder(nn.Module):
 
         # LSTM if needed.
         if self.args.lstm in ['encoder', 'both']:
-            h5 = self.lstm(h5.reshape(-1, self.n_frames, self.output_dim))[0].reshape(-1, 2*self.output_dim, 1, 1)
+            h5 = self.lstm(h5.reshape(-1, self.frames, self.output_dim))[0].reshape(-1, self.hidden_dim, 1, 1)
 
         return h5
 
@@ -98,36 +99,54 @@ class upconv(nn.Module):
 
 
 class decoder(nn.Module):
-    def __init__(self, dim, nc=1):
+    def __init__(self, args):
         super(decoder, self).__init__()
-        self.dim = dim
-        nf = 64
+
+        # Set the needed parameters for the encoder.
+        self.frames = args.frames
+        self.channels = args.channels
+        self.image_height = args.image_height
+        self.image_width = args.image_width
+        self.conv_dim = args.conv_dim
+        self.input_dim = args.k_dim
+        self.hidden_dim = args.hidden_size_koopman_multiplier*args.k_dim
+        self.args = args
+
+        # Declare the LSTM layer if needed.
+        if args.lstm in ['decoder', 'both']:
+            self.lstm = nn.LSTM(self.hidden_dim, self.input_dim, batch_first=True, bias=True,
+                                bidirectional=False)
+
         self.upc1 = nn.Sequential(
             # input is Z, going into a convolution
-            nn.ConvTranspose2d(dim, nf * 8, 4, 1, 0),
-            nn.BatchNorm2d(nf * 8),
+            nn.ConvTranspose2d(self.input_dim, self.conv_dim * 8, 4, 1, 0),
+            nn.BatchNorm2d(self.conv_dim * 8),
             nn.LeakyReLU(0.2, inplace=True)
         )
         # state size. (nf*8) x 4 x 4
-        self.upc2 = upconv(nf * 8, nf * 4)
+        self.upc2 = upconv(self.conv_dim * 8, self.conv_dim * 4)
         # state size. (nf*4) x 8 x 8
-        self.upc3 = upconv(nf * 4, nf * 2)
+        self.upc3 = upconv(self.conv_dim * 4, self.conv_dim * 2)
         # state size. (nf*2) x 16 x 16
-        self.upc4 = upconv(nf * 2, nf)
+        self.upc4 = upconv(self.conv_dim * 2, self.conv_dim)
         # state size. (nf) x 32 x 32
         self.upc5 = nn.Sequential(
-            nn.ConvTranspose2d(nf, nc, 4, 2, 1),
+            nn.ConvTranspose2d(self.conv_dim, self.channels, 4, 2, 1),
             nn.Sigmoid()
             # state size. (nc) x 64 x 64
         )
 
-    def forward(self, input):
-        d1 = self.upc1(input.view(-1, self.dim, 1, 1))
+    def forward(self, x):
+        # LSTM if needed.
+        if self.args.lstm in ['decoder', 'both']:
+            x = self.lstm(x.reshape(-1, self.frames, self.hidden_dim))[0].reshape(-1, self.input_dim, 1, 1)
+
+        d1 = self.upc1(x)
         d2 = self.upc2(d1)
         d3 = self.upc3(d2)
         d4 = self.upc4(d3)
         output = self.upc5(d4)
-        output = output.view(input.shape[0], input.shape[1], output.shape[1], output.shape[2], output.shape[3])
+        output = output.view(-1, self.frames, self.channels, self.image_height, self.image_width)
 
         return output
 
@@ -145,7 +164,7 @@ class CDSVAE(nn.Module):
 
         # Frame encoder and decoder
         self.encoder = encoder(args)
-        self.decoder = decoder(self.z_dim, self.channels)
+        self.decoder = decoder(args)
 
         # Prior of content is a uniform Gaussian and prior of the dynamics is an LSTM
         self.z_prior_lstm_ly1 = nn.LSTMCell(self.z_dim, self.hidden_dim)
