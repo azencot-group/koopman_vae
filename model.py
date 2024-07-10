@@ -115,17 +115,15 @@ class CDSVAE(nn.Module):
         super(CDSVAE, self).__init__()
 
         # Net structure.
-        self.f_dim = args.f_dim  # content
         self.z_dim = args.z_dim  # motion
         self.g_dim = args.g_dim  # frame feature
         self.channels = args.channels  # frame feature
         self.hidden_dim = args.rnn_size
-        self.f_rnn_layers = args.f_rnn_layers
         self.frames = args.frames
 
         # Frame encoder and decoder
         self.encoder = encoder(self.g_dim, self.channels)
-        self.decoder = decoder(self.z_dim + self.f_dim, self.channels)
+        self.decoder = decoder(self.z_dim, self.channels)
 
         # Prior of content is a uniform Gaussian and prior of the dynamics is an LSTM
         self.z_prior_lstm_ly1 = nn.LSTMCell(self.z_dim, self.hidden_dim)
@@ -135,8 +133,6 @@ class CDSVAE(nn.Module):
         self.z_prior_logvar = nn.Linear(self.hidden_dim, self.z_dim)
 
         self.z_lstm = nn.LSTM(self.g_dim, self.hidden_dim, 1, bidirectional=True, batch_first=True)
-        self.f_mean = LinearUnit(self.hidden_dim * 2, self.f_dim, False)
-        self.f_logvar = LinearUnit(self.hidden_dim * 2, self.f_dim, False)
 
         self.z_rnn = nn.RNN(self.hidden_dim * 2, self.hidden_dim, batch_first=True)
 
@@ -148,19 +144,14 @@ class CDSVAE(nn.Module):
         self.loss_func = nn.MSELoss(reduction="sum")
 
         # The loss weights.
-        self.kld_f_weight = args.weight_f
         self.kld_z_weight = args.weight_z
 
     def loss(self, x, outputs, batch_size):
-        f_mean, f_logvar, f, z_post_mean, z_post_logvar, z_post, z_prior_mean, z_prior_logvar, z_prior, recon_x = outputs
+        # Unpack the outputs.
+        z_post_mean, z_post_logvar, z_post, z_prior_mean, z_prior_logvar, z_prior, recon_x = outputs
 
         # Calculate the reconstruction loss.
         reconstruction_loss = self.loss_func(recon_x, x)
-
-        # Calculate the kld_f.
-        f_mean = f_mean.view((-1, f_mean.shape[-1]))  # [128, 256]
-        f_logvar = f_logvar.view((-1, f_logvar.shape[-1]))  # [128, 256]
-        kld_f = -0.5 * torch.sum(1 + f_logvar - torch.pow(f_mean, 2) - torch.exp(f_logvar))
 
         # Calculate the kld_z.
         z_post_var = torch.exp(z_post_logvar)  # [128, 8, 32]
@@ -170,14 +161,12 @@ class CDSVAE(nn.Module):
 
         # Normalize the losses by the batch size.
         reconstruction_loss /= batch_size
-        kld_f /= batch_size
         kld_z /= batch_size
 
         # Calculate the loss.
-        loss = reconstruction_loss + self.kld_f_weight*kld_f + self.kld_z_weight*kld_z
+        loss = reconstruction_loss + self.kld_z_weight * kld_z
 
-        return loss, reconstruction_loss, kld_f, kld_z
-
+        return loss, reconstruction_loss, kld_z
 
     def encode_and_sample_post(self, x):
         if isinstance(x, list):
@@ -186,13 +175,6 @@ class CDSVAE(nn.Module):
             conv_x = self.encoder_frame(x)
         # pass the bidirectional lstm
         lstm_out, _ = self.z_lstm(conv_x)
-        # get f:
-        backward = lstm_out[:, 0, self.hidden_dim:2 * self.hidden_dim]
-        frontal = lstm_out[:, self.frames - 1, 0:self.hidden_dim]
-        lstm_out_f = torch.cat((frontal, backward), dim=1)
-        f_mean = self.f_mean(lstm_out_f)
-        f_logvar = self.f_logvar(lstm_out_f)
-        f_post = self.reparameterize(f_mean, f_logvar, random_sampling=True)
 
         # pass to one direction rnn
         features, _ = self.z_rnn(lstm_out)
@@ -200,32 +182,19 @@ class CDSVAE(nn.Module):
         z_logvar = self.z_logvar(features)
         z_post = self.reparameterize(z_mean, z_logvar, random_sampling=True)
 
-        if isinstance(x, list):
-            f_mean_list = [f_mean]
-            for _x in x[1:]:
-                conv_x = self.encoder_frame(_x)
-                lstm_out, _ = self.z_lstm(conv_x)
-                # get f:
-                backward = lstm_out[:, 0, self.hidden_dim:2 * self.hidden_dim]
-                frontal = lstm_out[:, self.frames - 1, 0:self.hidden_dim]
-                lstm_out_f = torch.cat((frontal, backward), dim=1)
-                f_mean = self.f_mean(lstm_out_f)
-                f_mean_list.append(f_mean)
-            f_mean = f_mean_list
-        # f_mean is list if triple else not
-        return f_mean, f_logvar, f_post, z_mean, z_logvar, z_post
+        return z_mean, z_logvar, z_post
 
     def forward(self, x):
-        f_mean, f_logvar, f_post, z_mean_post, z_logvar_post, z_post = self.encode_and_sample_post(x)
+        # Get the posterior.
+        z_mean_post, z_logvar_post, z_post = self.encode_and_sample_post(x)
+
+        # Get the prior.
         z_mean_prior, z_logvar_prior, z_prior = self.sample_z_prior_train(z_post, random_sampling=self.training)
 
-        z_flatten = z_post.view(-1, z_post.shape[2])
+        # Reconstruct the data.
+        recon_x = self.decoder(z_post)
 
-        f_expand = f_post.unsqueeze(1).expand(-1, self.frames, self.f_dim)
-        zf = torch.cat((z_post, f_expand), dim=2)
-        recon_x = self.decoder(zf)
-        return f_mean, f_logvar, f_post, z_mean_post, z_logvar_post, z_post, z_mean_prior, z_logvar_prior, z_prior, \
-               recon_x
+        return z_mean_post, z_logvar_post, z_post, z_mean_prior, z_logvar_prior, z_prior, recon_x
 
     def forward_fixed_motion(self, x):
         z_mean_prior, z_logvar_prior, _ = self.sample_z(x.size(0), random_sampling=self.training)
@@ -401,7 +370,6 @@ class CDSVAE(nn.Module):
                 z_logvars = torch.cat((z_logvars, z_logvar_t.unsqueeze(1)), dim=1)
         return z_means, z_logvars, z_out
 
-
     def swap(self, x, first_idx, second_idx, plot=True):
         s_mean, s_logvar, s, d_mean_post, d_logvar_post, d = self.encode_and_sample_post(x)
         s1, d1 = s_mean[first_idx][None, :].expand(self.frames, s.shape[-1]), d_mean_post[0]
@@ -412,12 +380,13 @@ class CDSVAE(nn.Module):
 
         sd = torch.stack([s1d2, s2d1])
 
-        recon_s1_d2 = self.decoder(s1d2[None,:, :])
-        recon_s2_d1 = self.decoder(s2d1[None,:, :])
+        recon_s1_d2 = self.decoder(s1d2[None, :, :])
+        recon_s2_d1 = self.decoder(s2d1[None, :, :])
 
         # visualize
         if plot:
-            titles = ['S{}'.format(first_idx), 'S{}'.format(second_idx), 'S{}d{}s'.format(second_idx, first_idx), 'S{}d{}s'.format(first_idx, second_idx)]
+            titles = ['S{}'.format(first_idx), 'S{}'.format(second_idx), 'S{}d{}s'.format(second_idx, first_idx),
+                      'S{}d{}s'.format(first_idx, second_idx)]
             imshow_seqeunce([[x[first_idx]], [x[second_idx]], [recon_s2_d1.squeeze()], [recon_s1_d2.squeeze()]],
                             plot=plot, titles=np.asarray([titles]).T, figsize=(50, 10), fontsize=50)
 
