@@ -6,7 +6,6 @@ import argparse
 import neptune
 import torch
 import torch.optim as optim
-import torch.nn.functional as F
 import torch.utils.data
 from torch.utils.data import DataLoader
 from model import CDSVAE, classifier_Sprite_all
@@ -31,13 +30,11 @@ def define_args():
 
     parser.add_argument('--f_rnn_layers', default=1, type=int, help='number of layers (content lstm)')
     parser.add_argument('--rnn_size', default=256, type=int, help='dimensionality of hidden layer')
-    parser.add_argument('--f_dim', default=256, type=int, help='dim of f')
     parser.add_argument('--z_dim', default=32, type=int, help='dimensionality of z_t')
     parser.add_argument('--g_dim', default=128, type=int,
                         help='dimensionality of encoder output vector and decoder input vector')
 
     parser.add_argument('--type_gt', type=str, default='action', help='action, skin, top, pant, hair')
-    parser.add_argument('--weight_f', default=1, type=float, help='weighting on KL to prior, content vector')
     parser.add_argument('--weight_z', default=1, type=float, help='weighting on KL to prior, motion vector')
     parser.add_argument('--gpu', default='0', type=str, help='index of GPU to use')
     parser.add_argument('--sche', default='cosine', type=str, help='scheduler')
@@ -95,13 +92,12 @@ def train(args, model):
             outputs = model(x)
 
             # Calculate the losses.
-            loss, reconstruction_loss, kld_f, kld_z = model.loss(x, outputs, args.batch_size)
+            loss, reconstruction_loss, kld_z = model.loss(x, outputs, args.batch_size)
 
             # Log the losses and the learning rate.
             run['train/lr'].append(args.optimizer.param_groups[0]['lr'])
             run['train/sum_loss_weighted'].append(loss)
             run['train/reconstruction_loss'].append(reconstruction_loss)
-            run['train/kld_f'].append(kld_f)
             run['train/kld_z'].append(kld_z)
 
             # Perform backpropagation.
@@ -123,12 +119,11 @@ def train(args, model):
                     outputs = model(x)
 
                     # Calculate the losses.
-                    loss, reconstruction_loss, kld_f, kld_z = model.loss(x, outputs, args.batch_size)
+                    loss, reconstruction_loss, kld_z = model.loss(x, outputs, args.batch_size)
 
                     # Log the losses.
                     run['test/sum_loss_weighted'].append(loss)
                     run['test/reconstruction_loss'].append(reconstruction_loss)
-                    run['test/kld_f'].append(kld_f)
                     run['test/kld_z'].append(kld_z)
 
             # Save the net in the middle.
@@ -161,25 +156,6 @@ def print_log(print_string, log=None, verbose=True):
         log = open(log, 'a')
         log.write('{}\n'.format(print_string))
         log.close()
-
-
-class Loss(object):
-    def __init__(self):
-        self.reset()
-
-    def update(self, recon, kld_f, kld_z):
-        self.recon.append(recon)
-        self.kld_f.append(kld_f)
-        self.kld_z.append(kld_z)
-
-    def reset(self):
-        self.recon = []
-        self.kld_f = []
-        self.kld_z = []
-
-    def avg(self):
-        return [np.asarray(i).mean() for i in
-                [self.recon, self.kld_f, self.kld_z]]
 
 
 def create_model(args):
@@ -219,7 +195,7 @@ if __name__ == '__main__':
                            )
 
     # Create the name of the model.
-    args.model_name = f"CDSVAE_Sprite_epoch-{args.epochs}_bs-{args.batch_size}_decoder={args.decoder}{args.image_width}x{args.image_width}-rnn_size={args.rnn_size}-g_dim={args.g_dim}-f_dim={args.f_dim}-z_dim={args.z_dim}-lr={args.lr}-weight:kl_f={args.weight_f}-kl_z={args.weight_z}-sche_{args.sche}"
+    args.model_name = f"CDSVAE_Sprite_epoch-{args.epochs}_bs-{args.batch_size}_decoder={args.decoder}{args.image_width}x{args.image_width}-rnn_size={args.rnn_size}-g_dim={args.g_dim}-z_dim={args.z_dim}-lr={args.lr}-weight:kl_z={args.weight_z}-sche_{args.sche}"
 
     # Create the path of the checkpoint.
     os.makedirs(args.checkpoint_dir, exist_ok=True)
