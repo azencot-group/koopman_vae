@@ -34,32 +34,54 @@ class conv(nn.Module):
 
 
 class encoder(nn.Module):
-    def __init__(self, dim, nc=1):
+    def __init__(self, args):
         super(encoder, self).__init__()
-        self.dim = dim
-        nf = 64
+
+        # Set the needed parameters for the encoder.
+        self.frames = args.frames
+        self.channels = args.channels
+        self.image_height = args.image_height
+        self.image_width = args.image_width
+        self.conv_dim = args.conv_dim
+        self.output_dim = args.k_dim
+        self.args = args
+
         # input is (nc) x 64 x 64
-        self.c1 = conv(nc, nf)
+        self.c1 = conv(self.channels, self.conv_dim)
         # state size. (nf) x 32 x 32
-        self.c2 = conv(nf, nf * 2)
-        # state size. (nf*2) x 16 x 16
-        self.c3 = conv(nf * 2, nf * 4)
-        # state size. (nf*4) x 8 x 8
-        self.c4 = conv(nf * 4, nf * 8)
-        # state size. (nf*8) x 4 x 4
+        self.c2 = conv(self.conv_dim, self.conv_dim * 2)
+        # state size. (self.conv_dim*2) x 16 x 16
+        self.c3 = conv(self.conv_dim * 2, self.conv_dim * 4)
+        # state size. (self.conv_dim*4) x 8 x 8
+        self.c4 = conv(self.conv_dim * 4, self.conv_dim * 8)
+        # state size. (self.conv_dim*8) x 4 x 4
         self.c5 = nn.Sequential(
-            nn.Conv2d(nf * 8, dim, 4, 1, 0),
-            nn.BatchNorm2d(dim),
+            nn.Conv2d(self.conv_dim * 8, self.output_dim, 4, 1, 0),
+            nn.BatchNorm2d(self.output_dim),
             nn.Tanh()
         )
 
-    def forward(self, input):
-        h1 = self.c1(input)
+        # Declare the LSTM layer if needed.
+        if args.lstm in ['encoder', 'both']:
+            self.lstm = nn.LSTM(self.output_dim, 2*self.output_dim, batch_first=True, bias=True,
+                                bidirectional=False)
+
+    def forward(self, x):
+        # Reshape the batch and the timeseries together as they are invariant in convolutions.
+        x = x.reshape(-1, self.channels, self.image_height, self.image_width)
+
+       # Pass the data through the encoder.
+        h1 = self.c1(x)
         h2 = self.c2(h1)
         h3 = self.c3(h2)
         h4 = self.c4(h3)
         h5 = self.c5(h4)
-        return h5.view(-1, self.dim), [h1, h2, h3, h4]
+
+        # LSTM if needed.
+        if self.args.lstm in ['encoder', 'both']:
+            h5 = self.lstm(h5.reshape(-1, self.n_frames, self.output_dim))[0].reshape(-1, 2*self.output_dim, 1, 1)
+
+        return h5
 
 
 class upconv(nn.Module):
@@ -116,13 +138,13 @@ class CDSVAE(nn.Module):
 
         # Net structure.
         self.z_dim = args.z_dim  # motion
-        self.g_dim = args.g_dim  # frame feature
+        self.k_dim = args.k_dim  # frame feature
         self.channels = args.channels  # frame feature
         self.hidden_dim = args.rnn_size
         self.frames = args.frames
 
         # Frame encoder and decoder
-        self.encoder = encoder(self.g_dim, self.channels)
+        self.encoder = encoder(args)
         self.decoder = decoder(self.z_dim, self.channels)
 
         # Prior of content is a uniform Gaussian and prior of the dynamics is an LSTM
@@ -132,7 +154,7 @@ class CDSVAE(nn.Module):
         self.z_prior_mean = nn.Linear(self.hidden_dim, self.z_dim)
         self.z_prior_logvar = nn.Linear(self.hidden_dim, self.z_dim)
 
-        self.z_lstm = nn.LSTM(self.g_dim, self.hidden_dim, 1, bidirectional=True, batch_first=True)
+        self.z_lstm = nn.LSTM(self.k_dim, self.hidden_dim, 1, bidirectional=True, batch_first=True)
 
         self.z_rnn = nn.RNN(self.hidden_dim * 2, self.hidden_dim, batch_first=True)
 
@@ -396,13 +418,13 @@ class CDSVAE(nn.Module):
 class classifier_Sprite_all(nn.Module):
     def __init__(self, args):
         super(classifier_Sprite_all, self).__init__()
-        self.g_dim = args.g_dim  # frame feature
+        self.k_dim = args.k_dim  # frame feature
         self.channels = args.channels  # frame feature
         self.hidden_dim = args.rnn_size
         self.frames = args.frames
         from model import encoder
-        self.encoder = encoder(self.g_dim, self.channels)
-        self.bilstm = nn.LSTM(self.g_dim, self.hidden_dim, 1, bidirectional=True, batch_first=True)
+        self.encoder = encoder(self.k_dim, self.channels)
+        self.bilstm = nn.LSTM(self.k_dim, self.hidden_dim, 1, bidirectional=True, batch_first=True)
         self.cls_skin = nn.Sequential(
             nn.Linear(self.hidden_dim * 2, self.hidden_dim),
             nn.ReLU(True),

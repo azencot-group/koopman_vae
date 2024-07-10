@@ -14,34 +14,20 @@ from tqdm import tqdm
 
 def define_args():
     parser = argparse.ArgumentParser()
+
+    # Training parameters.
     parser.add_argument('--lr', default=1.e-3, type=float, help='learning rate')
     parser.add_argument('--batch_size', default=64, type=int, help='batch size')
     parser.add_argument('--epochs', default=1000, type=int, help='number of epochs to train for')
     parser.add_argument('--seed', default=1, type=int, help='manual seed')
     parser.add_argument('--evl_interval', default=10, type=int, help='evaluate every n epoch')
+    parser.add_argument('--sche', default='cosine', type=str, help='scheduler')
+    parser.add_argument('--gpu', default='0', type=str, help='index of GPU to use')
 
+    # Technical parameters.
     parser.add_argument('--dataset_path', default='/cs/cs_groups/azencot_group/datasets/SPRITES_ICML/datasetICML',
                         type=str, help='dataset to train')
     parser.add_argument('--dataset', default='Sprite', type=str, help='dataset to train')
-    parser.add_argument('--frames', default=8, type=int, help='number of frames, 8 for sprite, 15 for digits and MUGs')
-    parser.add_argument('--channels', default=3, type=int, help='number of channels in images')
-    parser.add_argument('--image_width', default=64, type=int, help='the height / width of the input image to network')
-    parser.add_argument('--decoder', default='ConvT', type=str, help='Upsampling+Conv or Transpose Conv: Conv or ConvT')
-
-    parser.add_argument('--rnn_size', default=256, type=int, help='dimensionality of hidden layer')
-    parser.add_argument('--lstm', type=str, choices=['encoder', 'decoder', 'both'],
-                        default='both',
-                        help='Specify the LSTM type: "encoder", "decoder", or "both" (default: "both")')
-    parser.add_argument('--z_dim', default=32, type=int, help='dimensionality of z_t')
-    parser.add_argument('--g_dim', default=128, type=int,
-                        help='dimensionality of encoder output vector and decoder input vector')
-
-    parser.add_argument('--type_gt', type=str, default='action', help='action, skin, top, pant, hair')
-    parser.add_argument('--weight_z', default=1, type=float, help='weighting on KL to prior, motion vector')
-    parser.add_argument('--gpu', default='0', type=str, help='index of GPU to use')
-    parser.add_argument('--sche', default='cosine', type=str, help='scheduler')
-
-    # Logs paths
     project_working_directory = '/cs/cs_groups/azencot_group/inon/koopman_vae'
     parser.add_argument('--models_during_training_dir', default=f'{project_working_directory}/models_during_training',
                         type=str,
@@ -50,6 +36,28 @@ def define_args():
                         help='base directory to save the last checkpoint.')
     parser.add_argument('--final_models_dir', default=f'{project_working_directory}/final_models', type=str,
                         help='base directory to save the final models.')
+
+    # Architecture parameters.
+    parser.add_argument('--frames', default=8, type=int, help='number of frames, 8 for sprite, 15 for digits and MUGs')
+    parser.add_argument('--channels', default=3, type=int, help='number of channels in images')
+    parser.add_argument('--image_height', default=64, type=int, help='the height / width of the input image to network')
+    parser.add_argument('--image_width', default=64, type=int, help='the height / width of the input image to network')
+    parser.add_argument('--rnn_size', default=256, type=int, help='dimensionality of hidden layer')
+    parser.add_argument('--lstm', type=str, choices=['encoder', 'decoder', 'both'],
+                        default='both',
+                        help='Specify the LSTM type: "encoder", "decoder", or "both" (default: "both")')
+
+    parser.add_argument('--z_dim', default=32, type=int, help='dimensionality of z_t')
+    parser.add_argument('--conv_dim', type=int, default=32)
+    parser.add_argument('--k_dim', default=40, type=int,
+                        help='Dimensionality of the Koopman module.')
+
+
+    # Loss parameters.
+    parser.add_argument('--weight_z', default=1, type=float, help='weighting on KL to prior, motion vector')
+
+    # Currently unused, maybe in the future.
+    parser.add_argument('--type_gt', type=str, default='action', help='action, skin, top, pant, hair')
 
     return parser
 
@@ -197,7 +205,7 @@ if __name__ == '__main__':
                            )
 
     # Create the name of the model.
-    args.model_name = f"CDSVAE_Sprite_epoch-{args.epochs}_bs-{args.batch_size}_decoder={args.decoder}{args.image_width}x{args.image_width}-rnn_size={args.rnn_size}-lstm={args.lstm}-g_dim={args.g_dim}-z_dim={args.z_dim}-lr={args.lr}-weight:kl_z={args.weight_z}-sche_{args.sche}"
+    args.model_name = f"CDSVAE_Sprite_epoch-{args.epochs}_bs-{args.batch_size}-rnn_size={args.rnn_size}-lstm={args.lstm}-k_dim={args.k_dim}-z_dim={args.z_dim}-lr={args.lr}-weight:kl_z={args.weight_z}-sche_{args.sche}"
 
     # Create the path of the checkpoint.
     os.makedirs(args.checkpoint_dir, exist_ok=True)

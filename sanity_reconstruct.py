@@ -20,7 +20,7 @@ def define_args():
 
     parser.add_argument('--rnn_size', default=256, type=int, help='dimensionality of hidden layer')
     parser.add_argument('--z_dim', default=32, type=int, help='dimensionality of z_t')
-    parser.add_argument('--g_dim', default=128, type=int,
+    parser.add_argument('--k_dim', default=40, type=int,
                         help='dimensionality of encoder output vector and decoder input vector')
 
     parser.add_argument('--gpu', default='0', type=str, help='index of GPU to use')
