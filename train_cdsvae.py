@@ -28,8 +28,10 @@ def define_args():
     parser.add_argument('--image_width', default=64, type=int, help='the height / width of the input image to network')
     parser.add_argument('--decoder', default='ConvT', type=str, help='Upsampling+Conv or Transpose Conv: Conv or ConvT')
 
-    parser.add_argument('--f_rnn_layers', default=1, type=int, help='number of layers (content lstm)')
     parser.add_argument('--rnn_size', default=256, type=int, help='dimensionality of hidden layer')
+    parser.add_argument('--lstm', type=str, choices=['encoder', 'decoder', 'both'],
+                        default='both',
+                        help='Specify the LSTM type: "encoder", "decoder", or "both" (default: "both")')
     parser.add_argument('--z_dim', default=32, type=int, help='dimensionality of z_t')
     parser.add_argument('--g_dim', default=128, type=int,
                         help='dimensionality of encoder output vector and decoder input vector')
@@ -195,7 +197,7 @@ if __name__ == '__main__':
                            )
 
     # Create the name of the model.
-    args.model_name = f"CDSVAE_Sprite_epoch-{args.epochs}_bs-{args.batch_size}_decoder={args.decoder}{args.image_width}x{args.image_width}-rnn_size={args.rnn_size}-g_dim={args.g_dim}-z_dim={args.z_dim}-lr={args.lr}-weight:kl_z={args.weight_z}-sche_{args.sche}"
+    args.model_name = f"CDSVAE_Sprite_epoch-{args.epochs}_bs-{args.batch_size}_decoder={args.decoder}{args.image_width}x{args.image_width}-rnn_size={args.rnn_size}-lstm={args.lstm}-g_dim={args.g_dim}-z_dim={args.z_dim}-lr={args.lr}-weight:kl_z={args.weight_z}-sche_{args.sche}"
 
     # Create the path of the checkpoint.
     os.makedirs(args.checkpoint_dir, exist_ok=True)
