@@ -42,12 +42,10 @@ def define_args():
     parser.add_argument('--channels', default=3, type=int, help='number of channels in images')
     parser.add_argument('--image_height', default=64, type=int, help='the height / width of the input image to network')
     parser.add_argument('--image_width', default=64, type=int, help='the height / width of the input image to network')
-    parser.add_argument('--rnn_size', default=256, type=int, help='dimensionality of hidden layer')
     parser.add_argument('--lstm', type=str, choices=['encoder', 'decoder', 'both'],
                         default='both',
                         help='Specify the LSTM type: "encoder", "decoder", or "both" (default: "both")')
 
-    parser.add_argument('--z_dim', default=32, type=int, help='dimensionality of z_t')
     parser.add_argument('--conv_dim', type=int, default=32)
     parser.add_argument('--k_dim', default=40, type=int,
                         help='Dimensionality of the Koopman module.')
@@ -207,7 +205,7 @@ if __name__ == '__main__':
                            )
 
     # Create the name of the model.
-    args.model_name = f"CDSVAE_Sprite_epoch-{args.epochs}_bs-{args.batch_size}-rnn_size={args.rnn_size}-lstm={args.lstm}-k_dim={args.k_dim}-z_dim={args.z_dim}-lr={args.lr}-weight:kl_z={args.weight_z}-sche_{args.sche}"
+    args.model_name = f"CDSVAE_Sprite_epoch-{args.epochs}_bs-{args.batch_size}-lstm={args.lstm}-k_dim={args.k_dim}-lr={args.lr}-weight:kl_z={args.weight_z}-sche_{args.sche}"
 
     # Create the path of the checkpoint.
     os.makedirs(args.checkpoint_dir, exist_ok=True)

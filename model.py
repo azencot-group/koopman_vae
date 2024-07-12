@@ -43,7 +43,7 @@ class encoder(nn.Module):
         self.image_height = args.image_height
         self.image_width = args.image_width
         self.conv_dim = args.conv_dim
-        self.output_dim = args.k_dim
+        self.conv_output_dim = args.k_dim
         self.hidden_dim = args.hidden_dim
         self.args = args
 
@@ -56,32 +56,37 @@ class encoder(nn.Module):
         # state size. (self.conv_dim*4) x 8 x 8
         self.c4 = conv(self.conv_dim * 4, self.conv_dim * 8)
         # state size. (self.conv_dim*8) x 4 x 4
-        self.c5 = nn.Sequential(
-            nn.Conv2d(self.conv_dim * 8, self.output_dim, 4, 1, 0),
-            nn.BatchNorm2d(self.output_dim),
-            nn.Tanh()
-        )
+
 
         # Declare the LSTM layer if needed.
         if args.lstm in ['encoder', 'both']:
-            self.lstm = nn.LSTM(self.output_dim, self.hidden_dim, batch_first=True, bias=True,
+            self.lstm = nn.LSTM(self.conv_output_dim, self.hidden_dim, batch_first=True, bias=True,
                                 bidirectional=False)
+        else:
+            self.conv_output_dim=self.hidden_dim
+
+        self.c5 = nn.Sequential(
+            nn.Conv2d(self.conv_dim * 8, self.conv_output_dim, 4, 1, 0),
+            nn.BatchNorm2d(self.conv_output_dim),
+            nn.Tanh()
+        )
 
     def forward(self, x):
         # Reshape the batch and the timeseries together as they are invariant in convolutions.
         x = x.reshape(-1, self.channels, self.image_height, self.image_width)
 
-       # Pass the data through the encoder.
+        # Pass the data through the encoder.
         h1 = self.c1(x)
         h2 = self.c2(h1)
         h3 = self.c3(h2)
         h4 = self.c4(h3)
-        h5 = self.c5(h4)
+        h5 = self.c5(h4).reshape(-1, self.frames, self.conv_output_dim)
 
         # LSTM if needed.
         if self.args.lstm in ['encoder', 'both']:
-            h5 = self.lstm(h5.reshape(-1, self.frames, self.output_dim))[0].reshape(-1, self.hidden_dim, 1, 1)
+            h5 = self.lstm(h5)[0]
 
+        # Return b x t x hidden_dim
         return h5
 
 
@@ -108,18 +113,23 @@ class decoder(nn.Module):
         self.image_height = args.image_height
         self.image_width = args.image_width
         self.conv_dim = args.conv_dim
-        self.input_dim = args.k_dim
+        self.k_dim = args.k_dim
         self.hidden_dim = args.hidden_dim
         self.args = args
 
-        # Declare the LSTM layer if needed.
+        # Declare the LSTM layer and the first convolution layer size.
         if args.lstm in ['decoder', 'both']:
-            self.lstm = nn.LSTM(self.hidden_dim, self.input_dim, batch_first=True, bias=True,
+            self.lstm = nn.LSTM(self.hidden_dim, self.k_dim, batch_first=True, bias=True,
                                 bidirectional=False)
+
+            first_conv_size = self.k_dim
+
+        else:
+            first_conv_size = self.hidden_dim
 
         self.upc1 = nn.Sequential(
             # input is Z, going into a convolution
-            nn.ConvTranspose2d(self.input_dim, self.conv_dim * 8, 4, 1, 0),
+            nn.ConvTranspose2d(first_conv_size, self.conv_dim * 8, 4, 1, 0),
             nn.BatchNorm2d(self.conv_dim * 8),
             nn.LeakyReLU(0.2, inplace=True)
         )
@@ -139,7 +149,9 @@ class decoder(nn.Module):
     def forward(self, x):
         # LSTM if needed.
         if self.args.lstm in ['decoder', 'both']:
-            x = self.lstm(x.reshape(-1, self.frames, self.hidden_dim))[0].reshape(-1, self.input_dim, 1, 1)
+            x = self.lstm(x.reshape(-1, self.frames, self.hidden_dim))[0].reshape(-1, self.k_dim, 1, 1)
+        else:
+            x = x.reshape(-1, self.hidden_dim, 1, 1)
 
         d1 = self.upc1(x)
         d2 = self.upc2(d1)
@@ -156,7 +168,6 @@ class CDSVAE(nn.Module):
         super(CDSVAE, self).__init__()
 
         # Net structure.
-        self.z_dim = args.z_dim  # motion
         self.channels = args.channels  # frame feature
         self.hidden_dim = args.hidden_dim
         self.frames = args.frames
@@ -165,16 +176,16 @@ class CDSVAE(nn.Module):
         self.encoder = encoder(args)
         self.decoder = decoder(args)
 
-        # Prior of content is a uniform Gaussian and prior of the dynamics is an LSTM
-        self.z_prior_lstm_ly1 = nn.LSTMCell(self.z_dim, self.hidden_dim)
+        # Prior of the dynamics is an LSTM
+        self.z_prior_lstm_ly1 = nn.LSTMCell(self.hidden_dim, self.hidden_dim)
         self.z_prior_lstm_ly2 = nn.LSTMCell(self.hidden_dim, self.hidden_dim)
 
-        self.z_prior_mean = nn.Linear(self.hidden_dim, self.z_dim)
-        self.z_prior_logvar = nn.Linear(self.hidden_dim, self.z_dim)
+        self.z_prior_mean = nn.Linear(self.hidden_dim, self.hidden_dim)
+        self.z_prior_logvar = nn.Linear(self.hidden_dim, self.hidden_dim)
 
         # Each timestep is for each z so no reshaping and feature mixing
-        self.z_mean = nn.Linear(self.hidden_dim, self.z_dim)
-        self.z_logvar = nn.Linear(self.hidden_dim, self.z_dim)
+        self.z_mean = nn.Linear(self.hidden_dim, self.hidden_dim)
+        self.z_logvar = nn.Linear(self.hidden_dim, self.hidden_dim)
 
         # The loss function.
         self.loss_func = nn.MSELoss(reduction="sum")
@@ -209,9 +220,8 @@ class CDSVAE(nn.Module):
         z = self.encoder(x)
 
         # pass to one direction rnn
-        features, _ = self.z_rnn(z)
-        z_mean = self.z_mean(features)
-        z_logvar = self.z_logvar(features)
+        z_mean = self.z_mean(z)
+        z_logvar = self.z_logvar(z)
         z_post = self.reparameterize(z_mean, z_logvar, random_sampling=True)
 
         return z_mean, z_logvar, z_post
@@ -306,7 +316,7 @@ class CDSVAE(nn.Module):
         z_logvars = None
         batch_size = n_sample
 
-        z_t = torch.zeros(batch_size, self.z_dim).cuda()
+        z_t = torch.zeros(batch_size, self.hidden_dim).cuda()
         h_t_ly1 = torch.zeros(batch_size, self.hidden_dim).cuda()
         c_t_ly1 = torch.zeros(batch_size, self.hidden_dim).cuda()
         h_t_ly2 = torch.zeros(batch_size, self.hidden_dim).cuda()
@@ -340,7 +350,7 @@ class CDSVAE(nn.Module):
         z_logvars = None
         batch_size = z_post.shape[0]
 
-        z_t = torch.zeros(batch_size, self.z_dim).cuda()
+        z_t = torch.zeros(batch_size, self.hidden_dim).cuda()
         h_t_ly1 = torch.zeros(batch_size, self.hidden_dim).cuda()
         c_t_ly1 = torch.zeros(batch_size, self.hidden_dim).cuda()
         h_t_ly2 = torch.zeros(batch_size, self.hidden_dim).cuda()
@@ -374,7 +384,7 @@ class CDSVAE(nn.Module):
         z_logvars = None
 
         # All states are initially set to 0, especially z_0 = 0
-        z_t = torch.zeros(batch_size, self.z_dim).cuda()
+        z_t = torch.zeros(batch_size, self.hidden_dim).cuda()
         # z_mean_t = torch.zeros(batch_size, self.z_dim)
         # z_logvar_t = torch.zeros(batch_size, self.z_dim)
         h_t_ly1 = torch.zeros(batch_size, self.hidden_dim).cuda()
