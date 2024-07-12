@@ -44,7 +44,7 @@ class encoder(nn.Module):
         self.image_width = args.image_width
         self.conv_dim = args.conv_dim
         self.output_dim = args.k_dim
-        self.hidden_dim = args.hidden_size_koopman_multiplier*args.k_dim
+        self.hidden_dim = args.hidden_dim
         self.args = args
 
         # input is (nc) x 64 x 64
@@ -109,7 +109,7 @@ class decoder(nn.Module):
         self.image_width = args.image_width
         self.conv_dim = args.conv_dim
         self.input_dim = args.k_dim
-        self.hidden_dim = args.hidden_size_koopman_multiplier*args.k_dim
+        self.hidden_dim = args.hidden_dim
         self.args = args
 
         # Declare the LSTM layer if needed.
@@ -157,9 +157,8 @@ class CDSVAE(nn.Module):
 
         # Net structure.
         self.z_dim = args.z_dim  # motion
-        self.k_dim = args.k_dim  # frame feature
         self.channels = args.channels  # frame feature
-        self.hidden_dim = args.rnn_size
+        self.hidden_dim = args.hidden_dim
         self.frames = args.frames
 
         # Frame encoder and decoder
@@ -172,10 +171,6 @@ class CDSVAE(nn.Module):
 
         self.z_prior_mean = nn.Linear(self.hidden_dim, self.z_dim)
         self.z_prior_logvar = nn.Linear(self.hidden_dim, self.z_dim)
-
-        self.z_lstm = nn.LSTM(self.k_dim, self.hidden_dim, 1, bidirectional=True, batch_first=True)
-
-        self.z_rnn = nn.RNN(self.hidden_dim * 2, self.hidden_dim, batch_first=True)
 
         # Each timestep is for each z so no reshaping and feature mixing
         self.z_mean = nn.Linear(self.hidden_dim, self.z_dim)
@@ -210,15 +205,11 @@ class CDSVAE(nn.Module):
         return loss, reconstruction_loss, kld_z
 
     def encode_and_sample_post(self, x):
-        if isinstance(x, list):
-            conv_x = self.encoder_frame(x[0])
-        else:
-            conv_x = self.encoder_frame(x)
-        # pass the bidirectional lstm
-        lstm_out, _ = self.z_lstm(conv_x)
+        # Encode the input.
+        z = self.encoder(x)
 
         # pass to one direction rnn
-        features, _ = self.z_rnn(lstm_out)
+        features, _ = self.z_rnn(z)
         z_mean = self.z_mean(features)
         z_logvar = self.z_logvar(features)
         z_post = self.reparameterize(z_mean, z_logvar, random_sampling=True)

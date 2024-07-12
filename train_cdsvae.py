@@ -242,6 +242,9 @@ if __name__ == '__main__':
                              drop_last=True,
                              pin_memory=True)
 
+    # Calculate the size of the hidden dim.
+    args.hidden_dim = args.k_dim * args.hidden_size_koopman_multiplier
+
     # Create model.
     model = create_model(args).to(device=args.device)
     model.apply(utils.init_weights)
