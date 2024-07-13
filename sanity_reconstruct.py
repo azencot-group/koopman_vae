@@ -9,24 +9,49 @@ _PROJECT_WORKING_DIRECTORY = '/cs/cs_groups/azencot_group/inon/koopman_vae'
 
 def define_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--batch_size', default=128, type=int, help='batch size')
-    parser.add_argument('--seed', default=1, type=int, help='manual seed')
-    parser.add_argument('--log_dir', default='./logs', type=str, help='base directory to save logs')
 
+    # Training parameters.
+    parser.add_argument('--lr', default=1.e-3, type=float, help='learning rate')
+    parser.add_argument('--batch_size', default=64, type=int, help='batch size')
+    parser.add_argument('--epochs', default=1000, type=int, help='number of epochs to train for')
+    parser.add_argument('--seed', default=1, type=int, help='manual seed')
+    parser.add_argument('--evl_interval', default=10, type=int, help='evaluate every n epoch')
+    parser.add_argument('--sche', default='cosine', type=str, help='scheduler')
+    parser.add_argument('--gpu', default='0', type=str, help='index of GPU to use')
+
+    # Technical parameters.
+    parser.add_argument('--dataset_path', default='/cs/cs_groups/azencot_group/datasets/SPRITES_ICML/datasetICML',
+                        type=str, help='dataset to train')
     parser.add_argument('--dataset', default='Sprite', type=str, help='dataset to train')
+    project_working_directory = '/cs/cs_groups/azencot_group/inon/koopman_vae'
+    parser.add_argument('--models_during_training_dir', default=f'{project_working_directory}/models_during_training',
+                        type=str,
+                        help='base directory to save the models during the training.')
+    parser.add_argument('--checkpoint_dir', default=f'{project_working_directory}/checkpoints', type=str,
+                        help='base directory to save the last checkpoint.')
+    parser.add_argument('--final_models_dir', default=f'{project_working_directory}/final_models', type=str,
+                        help='base directory to save the final models.')
+
+    # Architecture parameters.
     parser.add_argument('--frames', default=8, type=int, help='number of frames, 8 for sprite, 15 for digits and MUGs')
     parser.add_argument('--channels', default=3, type=int, help='number of channels in images')
+    parser.add_argument('--image_height', default=64, type=int, help='the height / width of the input image to network')
     parser.add_argument('--image_width', default=64, type=int, help='the height / width of the input image to network')
+    parser.add_argument('--lstm', type=str, choices=['encoder', 'decoder', 'both'],
+                        default='both',
+                        help='Specify the LSTM type: "encoder", "decoder", or "both" (default: "both")')
 
-    parser.add_argument('--rnn_size', default=256, type=int, help='dimensionality of hidden layer')
-    parser.add_argument('--z_dim', default=32, type=int, help='dimensionality of z_t')
-    parser.add_argument('--g_dim', default=128, type=int,
-                        help='dimensionality of encoder output vector and decoder input vector')
+    parser.add_argument('--conv_dim', type=int, default=32)
+    parser.add_argument('--k_dim', default=40, type=int,
+                        help='Dimensionality of the Koopman module.')
+    parser.add_argument('--hidden_size_koopman_multiplier', default=2, type=int,
+                        help='Multiplier for the k_dim in order to set the hidden size.')
 
-    parser.add_argument('--gpu', default='0', type=str, help='index of GPU to use')
-    parser.add_argument('--sche', default='cosine', type=str, help='scheduler')
+    # Loss parameters.
     parser.add_argument('--weight_z', default=1, type=float, help='weighting on KL to prior, motion vector')
-    parser.add_argument('--model_epoch', type=int, default=None, help='ckpt epoch')
+
+    # Currently unused, maybe in the future.
+    parser.add_argument('--type_gt', type=str, default='action', help='action, skin, top, pant, hair')
 
     parser.add_argument('--model_path', type=str, default=None, help='ckpt directory')
     parser.add_argument('--model_name', type=str, default=None)
@@ -56,6 +81,9 @@ if __name__ == '__main__':
     # Define the different arguments and parser them.
     parser = define_args()
     args = parser.parse_args()
+
+    # Calculate the size of the hidden dim.
+    args.hidden_dim = args.k_dim * args.hidden_size_koopman_multiplier
 
     # set PRNG seed
     args.device = set_seed_device(args.seed)

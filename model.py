@@ -34,32 +34,60 @@ class conv(nn.Module):
 
 
 class encoder(nn.Module):
-    def __init__(self, dim, nc=1):
+    def __init__(self, args):
         super(encoder, self).__init__()
-        self.dim = dim
-        nf = 64
+
+        # Set the needed parameters for the encoder.
+        self.frames = args.frames
+        self.channels = args.channels
+        self.image_height = args.image_height
+        self.image_width = args.image_width
+        self.conv_dim = args.conv_dim
+        self.conv_output_dim = args.k_dim
+        self.hidden_dim = args.hidden_dim
+        self.args = args
+
         # input is (nc) x 64 x 64
-        self.c1 = conv(nc, nf)
+        self.c1 = conv(self.channels, self.conv_dim)
         # state size. (nf) x 32 x 32
-        self.c2 = conv(nf, nf * 2)
-        # state size. (nf*2) x 16 x 16
-        self.c3 = conv(nf * 2, nf * 4)
-        # state size. (nf*4) x 8 x 8
-        self.c4 = conv(nf * 4, nf * 8)
-        # state size. (nf*8) x 4 x 4
+        self.c2 = conv(self.conv_dim, self.conv_dim * 2)
+        # state size. (self.conv_dim*2) x 16 x 16
+        self.c3 = conv(self.conv_dim * 2, self.conv_dim * 4)
+        # state size. (self.conv_dim*4) x 8 x 8
+        self.c4 = conv(self.conv_dim * 4, self.conv_dim * 8)
+        # state size. (self.conv_dim*8) x 4 x 4
+
+
+        # Declare the LSTM layer if needed.
+        if args.lstm in ['encoder', 'both']:
+            self.lstm = nn.LSTM(self.conv_output_dim, self.hidden_dim, batch_first=True, bias=True,
+                                bidirectional=False)
+        else:
+            self.conv_output_dim=self.hidden_dim
+
         self.c5 = nn.Sequential(
-            nn.Conv2d(nf * 8, dim, 4, 1, 0),
-            nn.BatchNorm2d(dim),
+            nn.Conv2d(self.conv_dim * 8, self.conv_output_dim, 4, 1, 0),
+            nn.BatchNorm2d(self.conv_output_dim),
             nn.Tanh()
         )
 
-    def forward(self, input):
-        h1 = self.c1(input)
+    def forward(self, x):
+        # Reshape the batch and the timeseries together as they are invariant in convolutions.
+        x = x.reshape(-1, self.channels, self.image_height, self.image_width)
+
+        # Pass the data through the encoder.
+        h1 = self.c1(x)
         h2 = self.c2(h1)
         h3 = self.c3(h2)
         h4 = self.c4(h3)
-        h5 = self.c5(h4)
-        return h5.view(-1, self.dim), [h1, h2, h3, h4]
+        h5 = self.c5(h4).reshape(-1, self.frames, self.conv_output_dim)
+
+        # LSTM if needed.
+        if self.args.lstm in ['encoder', 'both']:
+            h5 = self.lstm(h5)[0]
+
+        # Return b x t x hidden_dim
+        return h5
 
 
 class upconv(nn.Module):
@@ -76,36 +104,61 @@ class upconv(nn.Module):
 
 
 class decoder(nn.Module):
-    def __init__(self, dim, nc=1):
+    def __init__(self, args):
         super(decoder, self).__init__()
-        self.dim = dim
-        nf = 64
+
+        # Set the needed parameters for the encoder.
+        self.frames = args.frames
+        self.channels = args.channels
+        self.image_height = args.image_height
+        self.image_width = args.image_width
+        self.conv_dim = args.conv_dim
+        self.k_dim = args.k_dim
+        self.hidden_dim = args.hidden_dim
+        self.args = args
+
+        # Declare the LSTM layer and the first convolution layer size.
+        if args.lstm in ['decoder', 'both']:
+            self.lstm = nn.LSTM(self.hidden_dim, self.k_dim, batch_first=True, bias=True,
+                                bidirectional=False)
+
+            first_conv_size = self.k_dim
+
+        else:
+            first_conv_size = self.hidden_dim
+
         self.upc1 = nn.Sequential(
             # input is Z, going into a convolution
-            nn.ConvTranspose2d(dim, nf * 8, 4, 1, 0),
-            nn.BatchNorm2d(nf * 8),
+            nn.ConvTranspose2d(first_conv_size, self.conv_dim * 8, 4, 1, 0),
+            nn.BatchNorm2d(self.conv_dim * 8),
             nn.LeakyReLU(0.2, inplace=True)
         )
         # state size. (nf*8) x 4 x 4
-        self.upc2 = upconv(nf * 8, nf * 4)
+        self.upc2 = upconv(self.conv_dim * 8, self.conv_dim * 4)
         # state size. (nf*4) x 8 x 8
-        self.upc3 = upconv(nf * 4, nf * 2)
+        self.upc3 = upconv(self.conv_dim * 4, self.conv_dim * 2)
         # state size. (nf*2) x 16 x 16
-        self.upc4 = upconv(nf * 2, nf)
+        self.upc4 = upconv(self.conv_dim * 2, self.conv_dim)
         # state size. (nf) x 32 x 32
         self.upc5 = nn.Sequential(
-            nn.ConvTranspose2d(nf, nc, 4, 2, 1),
+            nn.ConvTranspose2d(self.conv_dim, self.channels, 4, 2, 1),
             nn.Sigmoid()
             # state size. (nc) x 64 x 64
         )
 
-    def forward(self, input):
-        d1 = self.upc1(input.view(-1, self.dim, 1, 1))
+    def forward(self, x):
+        # LSTM if needed.
+        if self.args.lstm in ['decoder', 'both']:
+            x = self.lstm(x.reshape(-1, self.frames, self.hidden_dim))[0].reshape(-1, self.k_dim, 1, 1)
+        else:
+            x = x.reshape(-1, self.hidden_dim, 1, 1)
+
+        d1 = self.upc1(x)
         d2 = self.upc2(d1)
         d3 = self.upc3(d2)
         d4 = self.upc4(d3)
         output = self.upc5(d4)
-        output = output.view(input.shape[0], input.shape[1], output.shape[1], output.shape[2], output.shape[3])
+        output = output.view(-1, self.frames, self.channels, self.image_height, self.image_width)
 
         return output
 
@@ -115,30 +168,24 @@ class CDSVAE(nn.Module):
         super(CDSVAE, self).__init__()
 
         # Net structure.
-        self.z_dim = args.z_dim  # motion
-        self.g_dim = args.g_dim  # frame feature
         self.channels = args.channels  # frame feature
-        self.hidden_dim = args.rnn_size
+        self.hidden_dim = args.hidden_dim
         self.frames = args.frames
 
         # Frame encoder and decoder
-        self.encoder = encoder(self.g_dim, self.channels)
-        self.decoder = decoder(self.z_dim, self.channels)
+        self.encoder = encoder(args)
+        self.decoder = decoder(args)
 
-        # Prior of content is a uniform Gaussian and prior of the dynamics is an LSTM
-        self.z_prior_lstm_ly1 = nn.LSTMCell(self.z_dim, self.hidden_dim)
+        # Prior of the dynamics is an LSTM
+        self.z_prior_lstm_ly1 = nn.LSTMCell(self.hidden_dim, self.hidden_dim)
         self.z_prior_lstm_ly2 = nn.LSTMCell(self.hidden_dim, self.hidden_dim)
 
-        self.z_prior_mean = nn.Linear(self.hidden_dim, self.z_dim)
-        self.z_prior_logvar = nn.Linear(self.hidden_dim, self.z_dim)
-
-        self.z_lstm = nn.LSTM(self.g_dim, self.hidden_dim, 1, bidirectional=True, batch_first=True)
-
-        self.z_rnn = nn.RNN(self.hidden_dim * 2, self.hidden_dim, batch_first=True)
+        self.z_prior_mean = nn.Linear(self.hidden_dim, self.hidden_dim)
+        self.z_prior_logvar = nn.Linear(self.hidden_dim, self.hidden_dim)
 
         # Each timestep is for each z so no reshaping and feature mixing
-        self.z_mean = nn.Linear(self.hidden_dim, self.z_dim)
-        self.z_logvar = nn.Linear(self.hidden_dim, self.z_dim)
+        self.z_mean = nn.Linear(self.hidden_dim, self.hidden_dim)
+        self.z_logvar = nn.Linear(self.hidden_dim, self.hidden_dim)
 
         # The loss function.
         self.loss_func = nn.MSELoss(reduction="sum")
@@ -169,17 +216,12 @@ class CDSVAE(nn.Module):
         return loss, reconstruction_loss, kld_z
 
     def encode_and_sample_post(self, x):
-        if isinstance(x, list):
-            conv_x = self.encoder_frame(x[0])
-        else:
-            conv_x = self.encoder_frame(x)
-        # pass the bidirectional lstm
-        lstm_out, _ = self.z_lstm(conv_x)
+        # Encode the input.
+        z = self.encoder(x)
 
         # pass to one direction rnn
-        features, _ = self.z_rnn(lstm_out)
-        z_mean = self.z_mean(features)
-        z_logvar = self.z_logvar(features)
+        z_mean = self.z_mean(z)
+        z_logvar = self.z_logvar(z)
         z_post = self.reparameterize(z_mean, z_logvar, random_sampling=True)
 
         return z_mean, z_logvar, z_post
@@ -274,7 +316,7 @@ class CDSVAE(nn.Module):
         z_logvars = None
         batch_size = n_sample
 
-        z_t = torch.zeros(batch_size, self.z_dim).cuda()
+        z_t = torch.zeros(batch_size, self.hidden_dim).cuda()
         h_t_ly1 = torch.zeros(batch_size, self.hidden_dim).cuda()
         c_t_ly1 = torch.zeros(batch_size, self.hidden_dim).cuda()
         h_t_ly2 = torch.zeros(batch_size, self.hidden_dim).cuda()
@@ -308,7 +350,7 @@ class CDSVAE(nn.Module):
         z_logvars = None
         batch_size = z_post.shape[0]
 
-        z_t = torch.zeros(batch_size, self.z_dim).cuda()
+        z_t = torch.zeros(batch_size, self.hidden_dim).cuda()
         h_t_ly1 = torch.zeros(batch_size, self.hidden_dim).cuda()
         c_t_ly1 = torch.zeros(batch_size, self.hidden_dim).cuda()
         h_t_ly2 = torch.zeros(batch_size, self.hidden_dim).cuda()
@@ -342,7 +384,7 @@ class CDSVAE(nn.Module):
         z_logvars = None
 
         # All states are initially set to 0, especially z_0 = 0
-        z_t = torch.zeros(batch_size, self.z_dim).cuda()
+        z_t = torch.zeros(batch_size, self.hidden_dim).cuda()
         # z_mean_t = torch.zeros(batch_size, self.z_dim)
         # z_logvar_t = torch.zeros(batch_size, self.z_dim)
         h_t_ly1 = torch.zeros(batch_size, self.hidden_dim).cuda()
@@ -396,13 +438,13 @@ class CDSVAE(nn.Module):
 class classifier_Sprite_all(nn.Module):
     def __init__(self, args):
         super(classifier_Sprite_all, self).__init__()
-        self.g_dim = args.g_dim  # frame feature
+        self.k_dim = args.k_dim  # frame feature
         self.channels = args.channels  # frame feature
         self.hidden_dim = args.rnn_size
         self.frames = args.frames
         from model import encoder
-        self.encoder = encoder(self.g_dim, self.channels)
-        self.bilstm = nn.LSTM(self.g_dim, self.hidden_dim, 1, bidirectional=True, batch_first=True)
+        self.encoder = encoder(self.k_dim, self.channels)
+        self.bilstm = nn.LSTM(self.k_dim, self.hidden_dim, 1, bidirectional=True, batch_first=True)
         self.cls_skin = nn.Sequential(
             nn.Linear(self.hidden_dim * 2, self.hidden_dim),
             nn.ReLU(True),
