@@ -235,6 +235,10 @@ if __name__ == '__main__':
                       f'_lstm={args.lstm}' \
                       f'_conv={args.conv_dim}' \
                       f'_k_dim={args.k_dim}' \
+                      f'_hidden_size_koopman_multiplier={args.hidden_size_koopman_multiplier}' \
+                      f'_dropout={args.dropout}' \
+                      f'_static_size={args.static_size}' \
+                      f'_dynamic_mode={args.dynamic_mode}' \
                       f'_dropout={args.dropout}' \
                       f'_ballthresh={args.ball_thresh}' \
                       f'_dynamicthresh={args.dynamic_thresh}' \
