@@ -1,7 +1,7 @@
 import torch
 import argparse
 import os
-from model import CDSVAE, classifier_Sprite_all
+from model import KoopmanVAE, classifier_Sprite_all
 import utils
 import numpy as np
 
@@ -42,16 +42,28 @@ def define_args():
                         help='Specify the LSTM type: "encoder", "decoder", or "both" (default: "both")')
 
     parser.add_argument('--conv_dim', type=int, default=32)
+    parser.add_argument('--dropout', type=float, default=0.2)
     parser.add_argument('--k_dim', default=40, type=int,
                         help='Dimensionality of the Koopman module.')
     parser.add_argument('--hidden_size_koopman_multiplier', default=2, type=int,
                         help='Multiplier for the k_dim in order to set the hidden size.')
 
-    # Loss parameters.
-    parser.add_argument('--weight_z', default=1, type=float, help='weighting on KL to prior, motion vector')
+    # Koopman layer implementation parameters.
+    parser.add_argument('--static_size', type=int, default=7)
+    parser.add_argument('--static_mode', type=str, default='ball', choices=['norm', 'real', 'ball'])
+    parser.add_argument('--dynamic_mode', type=str, default='real',
+                        choices=['strict', 'thresh', 'ball', 'real', 'none'])
+    parser.add_argument('--ball_thresh', type=float, default=0.6)  # related to 'ball' dynamic mode
+    parser.add_argument('--dynamic_thresh', type=float, default=0.5)  # related to 'thresh', 'real'
+    parser.add_argument('--eigs_thresh', type=float, default=.5)  # related to 'norm' static mode loss
 
-    # Currently unused, maybe in the future.
-    parser.add_argument('--type_gt', type=str, default='action', help='action, skin, top, pant, hair')
+    # Loss parameters.
+    parser.add_argument('--weight_kl_z', default=1.0, type=float, help='Weight of KLD between prior and posterior.')
+    parser.add_argument('--weight_x_pred', default=1.0, type=float, help='Weight of Koopman matrix leading to right '
+                                                                         'decoding.')
+    parser.add_argument('--weight_z_pred', default=1.0, type=float, help='Weight of Koopman matrix leading to right '
+                                                                         'transformation in time.')
+    parser.add_argument('--weight_spectral', default=1.0, type=float, help='Weight of the spectral loss.')
 
     parser.add_argument('--model_path', type=str, default=None, help='ckpt directory')
     parser.add_argument('--model_name', type=str, default=None)
@@ -100,7 +112,7 @@ if __name__ == '__main__':
     dtype = torch.cuda.FloatTensor
 
     # Create the model.
-    model = CDSVAE(args)
+    model = KoopmanVAE(args)
     model.load_state_dict(saved_model, strict=False)
     model.eval()
     model = model.cuda()
@@ -113,10 +125,10 @@ if __name__ == '__main__':
     X = x.to(args.device)
 
     # Pass the data through the model.
-    z_mean_post, z_logvar_post, z_post, z_mean_prior, z_logvar_prior, z_prior, recon_x = model(X)
+    z_mean_post, z_logvar_post, z_post, z_mean_prior, z_logvar_prior, z_prior, z_post_koopman, z_post_dropout, Ct, koopman_recon_x, dropout_recon_x = model(X)
 
     # visualize
     index=0
-    titles = ['Original image:', 'Reconstructed image:']
-    utils.imshow_seqeunce([[x[index]], [recon_x[index]]], titles=np.asarray([titles]).T, figsize=(50, 10), fontsize=50)
+    titles = ['Original image:', 'Reconstructed image koopman:', 'Original image:', 'Reconstructed image dropout:']
+    utils.imshow_seqeunce([[x[index]], [koopman_recon_x[index]], [x[index]], [dropout_recon_x[index]]], titles=np.asarray([titles]).T, figsize=(50, 10), fontsize=50)
 
