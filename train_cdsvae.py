@@ -8,7 +8,7 @@ import torch
 import torch.optim as optim
 import torch.utils.data
 from torch.utils.data import DataLoader
-from model import CDSVAE, classifier_Sprite_all
+from model import KoopmanVAE, classifier_Sprite_all
 from tqdm import tqdm
 
 
@@ -47,14 +47,28 @@ def define_args():
                         help='Specify the LSTM type: "encoder", "decoder", or "both" (default: "both")')
 
     parser.add_argument('--conv_dim', type=int, default=32)
+    parser.add_argument('--dropout', type=float, default=0.2)
     parser.add_argument('--k_dim', default=40, type=int,
                         help='Dimensionality of the Koopman module.')
     parser.add_argument('--hidden_size_koopman_multiplier', default=2, type=int,
                         help='Multiplier for the k_dim in order to set the hidden size.')
 
+    # Koopman layer implementation parameters.
+    parser.add_argument('--static_size', type=int, default=7)
+    parser.add_argument('--static_mode', type=str, default='ball', choices=['norm', 'real', 'ball'])
+    parser.add_argument('--dynamic_mode', type=str, default='real',
+                        choices=['strict', 'thresh', 'ball', 'real', 'none'])
+    parser.add_argument('--ball_thresh', type=float, default=0.6)  # related to 'ball' dynamic mode
+    parser.add_argument('--dynamic_thresh', type=float, default=0.5)  # related to 'thresh', 'real'
+    parser.add_argument('--eigs_thresh', type=float, default=.5)  # related to 'norm' static mode loss
 
     # Loss parameters.
-    parser.add_argument('--weight_z', default=1, type=float, help='weighting on KL to prior, motion vector')
+    parser.add_argument('--weight_kl_z', default=1.0, type=float, help='Weight of KLD between prior and posterior.')
+    parser.add_argument('--weight_x_pred', default=1.0, type=float, help='Weight of Koopman matrix leading to right '
+                                                                         'decoding.')
+    parser.add_argument('--weight_z_pred', default=1.0, type=float, help='Weight of Koopman matrix leading to right '
+                                                                         'transformation in time.')
+    parser.add_argument('--weight_spectral', default=1.0, type=float, help='Weight of the spectral loss.')
 
     # Currently unused, maybe in the future.
     parser.add_argument('--type_gt', type=str, default='action', help='action, skin, top, pant, hair')
@@ -68,7 +82,6 @@ def set_seed_device(seed):
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
-
 
     # Use cuda if available
     if torch.cuda.is_available():
@@ -102,13 +115,10 @@ def train(args, model):
             outputs = model(x)
 
             # Calculate the losses.
-            loss, reconstruction_loss, kld_z = model.loss(x, outputs, args.batch_size)
+            loss, losses = model.loss(x, outputs, args.batch_size)
 
-            # Log the losses and the learning rate.
-            run['train/lr'].append(args.optimizer.param_groups[0]['lr'])
-            run['train/sum_loss_weighted'].append(loss)
-            run['train/reconstruction_loss'].append(reconstruction_loss)
-            run['train/kld_z'].append(kld_z)
+            # Log the different losses.
+            log_losses(run, loss, losses, test=False)
 
             # Perform backpropagation.
             loss.backward()
@@ -129,12 +139,10 @@ def train(args, model):
                     outputs = model(x)
 
                     # Calculate the losses.
-                    loss, reconstruction_loss, kld_z = model.loss(x, outputs, args.batch_size)
+                    loss, losses = model.loss(x, outputs, args.batch_size)
 
                     # Log the losses.
-                    run['test/sum_loss_weighted'].append(loss)
-                    run['test/reconstruction_loss'].append(reconstruction_loss)
-                    run['test/kld_z'].append(kld_z)
+                    log_losses(run, loss, losses, test=True)
 
             # Save the net in the middle.
             net2save = model.module if torch.cuda.device_count() > 1 else model
@@ -146,6 +154,22 @@ def train(args, model):
     # Save the model.
     net2save = model.module if torch.cuda.device_count() > 1 else model
     torch.save(net2save.state_dict(), os.path.join(args.final_models_dir, args.model_name + ".pth"))
+
+
+def log_losses(run, loss, losses, test=False):
+    # Unpack the losses.
+    reconstruction_loss, kld_z, x_pred_loss, z_pred_loss, spectral_loss = losses
+
+    # Set the name of the mode.
+    mode = 'test' if test else 'train'
+
+    # Log the losses
+    run[f'{mode}/sum_loss_weighted'].append(loss)
+    run[f'{mode}/reconstruction_loss'].append(reconstruction_loss)
+    run[f'{mode}/kld_z'].append(kld_z)
+    run[f'{mode}/x_pred_loss'].append(x_pred_loss)
+    run[f'{mode}/z_pred_loss'].append(z_pred_loss)
+    run[f'{mode}/spectral_loss'].append(spectral_loss)
 
 
 # X, X, 64, 64, 3 -> # X, X, 3, 64, 64
@@ -169,7 +193,7 @@ def print_log(print_string, log=None, verbose=True):
 
 
 def create_model(args):
-    return CDSVAE(args)
+    return KoopmanVAE(args)
 
 
 def save_checkpoint(optimizer, model, epoch, checkpoint_path):
@@ -205,7 +229,22 @@ if __name__ == '__main__':
                            )
 
     # Create the name of the model.
-    args.model_name = f"CDSVAE_Sprite_epoch-{args.epochs}_bs-{args.batch_size}-lstm={args.lstm}-k_dim={args.k_dim}-lr={args.lr}-weight:kl_z={args.weight_z}-sche_{args.sche}"
+    args.model_name = f'CDSVAE_Sprite' \
+                      f'_epochs={args.epochs}' \
+                      f'_bs={args.batch_size}' \
+                      f'_lstm={args.lstm}' \
+                      f'_conv={args.conv_dim}' \
+                      f'_k_dim={args.k_dim}' \
+                      f'_dropout={args.dropout}' \
+                      f'_ballthresh={args.ball_thresh}' \
+                      f'_dynamicthresh={args.dynamic_thresh}' \
+                      f'_eigsthresh={args.eigs_thresh}' \
+                      f'_lr={args.lr}' \
+                      f'_weight_kl_z={args.weight_kl_z}' \
+                      f'_weight_x_pred={args.weight_x_pred}' \
+                      f'_weight_z_pred={args.weight_z_pred}' \
+                      f'_weight_spectral={args.weight_spectral}' \
+                      f'_sche={args.sche}'
 
     # Create the path of the checkpoint.
     os.makedirs(args.checkpoint_dir, exist_ok=True)

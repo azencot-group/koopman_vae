@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 from utils import imshow_seqeunce
-from collections import OrderedDict
+from koopman_utils import get_unique_num
 
 
 class LinearUnit(nn.Module):
@@ -45,7 +45,7 @@ class encoder(nn.Module):
         self.conv_dim = args.conv_dim
         self.conv_output_dim = args.k_dim
         self.hidden_dim = args.hidden_dim
-        self.args = args
+        self.lstm = args.lstm
 
         # input is (nc) x 64 x 64
         self.c1 = conv(self.channels, self.conv_dim)
@@ -57,13 +57,12 @@ class encoder(nn.Module):
         self.c4 = conv(self.conv_dim * 4, self.conv_dim * 8)
         # state size. (self.conv_dim*8) x 4 x 4
 
-
         # Declare the LSTM layer if needed.
-        if args.lstm in ['encoder', 'both']:
-            self.lstm = nn.LSTM(self.conv_output_dim, self.hidden_dim, batch_first=True, bias=True,
-                                bidirectional=False)
+        if self.lstm in ['encoder', 'both']:
+            self.lstm_layer = nn.LSTM(self.conv_output_dim, self.hidden_dim, batch_first=True, bias=True,
+                                      bidirectional=False)
         else:
-            self.conv_output_dim=self.hidden_dim
+            self.conv_output_dim = self.hidden_dim
 
         self.c5 = nn.Sequential(
             nn.Conv2d(self.conv_dim * 8, self.conv_output_dim, 4, 1, 0),
@@ -83,8 +82,8 @@ class encoder(nn.Module):
         h5 = self.c5(h4).reshape(-1, self.frames, self.conv_output_dim)
 
         # LSTM if needed.
-        if self.args.lstm in ['encoder', 'both']:
-            h5 = self.lstm(h5)[0]
+        if self.lstm in ['encoder', 'both']:
+            h5 = self.lstm_layer(h5)[0]
 
         # Return b x t x hidden_dim
         return h5
@@ -115,12 +114,12 @@ class decoder(nn.Module):
         self.conv_dim = args.conv_dim
         self.k_dim = args.k_dim
         self.hidden_dim = args.hidden_dim
-        self.args = args
+        self.lstm = args.lstm
 
         # Declare the LSTM layer and the first convolution layer size.
-        if args.lstm in ['decoder', 'both']:
-            self.lstm = nn.LSTM(self.hidden_dim, self.k_dim, batch_first=True, bias=True,
-                                bidirectional=False)
+        if self.lstm in ['decoder', 'both']:
+            self.lstm_layer = nn.LSTM(self.hidden_dim, self.k_dim, batch_first=True, bias=True,
+                                      bidirectional=False)
 
             first_conv_size = self.k_dim
 
@@ -148,8 +147,8 @@ class decoder(nn.Module):
 
     def forward(self, x):
         # LSTM if needed.
-        if self.args.lstm in ['decoder', 'both']:
-            x = self.lstm(x.reshape(-1, self.frames, self.hidden_dim))[0].reshape(-1, self.k_dim, 1, 1)
+        if self.lstm in ['decoder', 'both']:
+            x = self.lstm_layer(x.reshape(-1, self.frames, self.hidden_dim))[0].reshape(-1, self.k_dim, 1, 1)
         else:
             x = x.reshape(-1, self.hidden_dim, 1, 1)
 
@@ -163,9 +162,139 @@ class decoder(nn.Module):
         return output
 
 
-class CDSVAE(nn.Module):
+class KoopmanLayer(nn.Module):
+
     def __init__(self, args):
-        super(CDSVAE, self).__init__()
+        super(KoopmanLayer, self).__init__()
+
+        # The device.
+        self.device = args.device
+
+        # Layer structure.
+        self.frames = args.frames
+        self.k_dim = args.k_dim
+
+        # Eigenvalues arguments.
+        self.static_size = args.static_size
+        self.static_mode = args.static_mode
+        self.dynamic_mode = args.dynamic_mode
+        self.eigs_tresh_squared = args.eigs_thresh ** 2
+        self.ball_thresh = args.ball_thresh
+
+        # loss functions
+        self.loss_func = nn.MSELoss()
+        self.dynamic_threshold_loss = nn.Threshold(args.dynamic_thresh, 0)
+
+    def forward(self, Z):
+        # Z is in b * t x c x 1 x 1
+        Zr = Z.squeeze().reshape(-1, self.frames, self.k_dim)
+
+        # Split the latent variable to past and future.
+        X, Y = Zr[:, :-1], Zr[:, 1:]
+
+        # Solve the linear system that takes us forward in time.
+        Ct = torch.linalg.lstsq(X.reshape(-1, self.k_dim), Y.reshape(-1, self.k_dim)).solution
+
+        # Predict (broadcast) by calculating the forward in time.
+        Y2 = X @ Ct
+        assert (torch.sum(torch.isnan(Y2)) == 0)
+
+        # Concatenate t0 to the forward in time.
+        Z2 = torch.cat((X[:, 0].unsqueeze(dim=1), Y2), dim=1)
+
+        return Z2.reshape(Z.shape), Ct
+
+    def loss(self, dropout_recon_x, koopman_recon_x, z_post_dropout, z_post_koopman, Ct):
+
+        # predict ambient
+        x_pred_loss = self.loss_func(dropout_recon_x, koopman_recon_x)
+
+        # predict latent
+        z_pred_loss = self.loss_func(z_post_dropout, z_post_koopman)
+
+        # Koopman operator constraints (disentanglement)
+        # Compute the eigenvalues.
+        D = torch.linalg.eigvals(Ct)
+
+        # Compute the norm of the eigenvalues.
+        Dn = torch.real(torch.conj(D) * D)
+
+        # Extract the real part of the eigenvalues.
+        Dr = torch.real(D)
+
+        # Compute the distance of each eigenvalue to 1.
+        Db = torch.sqrt((Dr - torch.ones(len(Dr)).to(Dr.device)) ** 2 + torch.imag(D) ** 2)
+
+        # ----- static loss ----- #
+        Id, new_static_number = None, None
+        if self.static_mode == 'norm':
+            I = torch.argsort(Dn)
+            new_static_number = get_unique_num(D, I, self.static_size)
+            Is, Id = I[-new_static_number:], I[:-new_static_number]
+            Dns = torch.index_select(Dn, 0, Is)
+            spectral_static_loss = self.loss_func(Dns, torch.ones(len(Dns)).to(Dns.device))
+
+        elif self.static_mode == 'real':
+            I = torch.argsort(Dr)
+            new_static_number = get_unique_num(D, I, self.static_size)
+            Is, Id = I[-new_static_number:], I[:-new_static_number]
+            Drs = torch.index_select(Dr, 0, Is)
+            spectral_static_loss = self.loss_func(Drs, torch.ones(len(Drs)).to(Drs.device))
+
+        elif self.static_mode == 'ball':
+            I = torch.argsort(Db)
+            # we need to pick the first indexes from I and not the last
+            new_static_number = get_unique_num(D, torch.flip(I, dims=[0]), self.static_size)
+            Is, Id = I[:new_static_number], I[new_static_number:]
+            Dbs = torch.index_select(Db, 0, Is)
+            spectral_static_loss = self.loss_func(Dbs, torch.zeros(len(Dbs)).to(Dbs.device))
+
+        elif self.static_mode == 'space_ball':
+            I = torch.argsort(Db)
+            # we need to pick the first indexes from I and not the last
+            new_static_number = get_unique_num(D, torch.flip(I, dims=[0]), self.static_size)
+            Is, Id = I[:new_static_number], I[new_static_number:]
+            Dbs = torch.index_select(Db, 0, Is)
+            # spectral_static_loss = torch.mean(self.sp_b_thresh(Dbs))
+
+        elif self.static_mode == 'none':
+            spectral_static_loss = torch.zeros(1).to(self.device)
+
+        if self.dynamic_mode == 'strict':
+            Dnd = torch.index_select(Dn, 0, Id)
+            spectral_dynamic_loss = self.loss_func(Dnd, self.eigs_tresh_squared * torch.ones(len(Dnd)).to(Dnd.device))
+
+        elif self.dynamic_mode == 'thresh' and self.static_mode == 'none':
+            I = torch.argsort(Dn)
+            new_static_number = get_unique_num(D, I, self.static_size)
+            Is, Id = I[-new_static_number:], I[:-new_static_number]
+            Dnd = torch.index_select(Dn, 0, Id)
+            spectral_dynamic_loss = torch.mean(self.dynamic_threshold_loss(Dnd))
+
+        elif self.dynamic_mode == 'thresh':
+            Dnd = torch.index_select(Dn, 0, Id)
+            spectral_dynamic_loss = torch.mean(self.dynamic_threshold_loss(Dnd))
+
+        elif self.dynamic_mode == 'ball':
+            Dbd = torch.index_select(Db, 0, Id)
+            spectral_dynamic_loss = torch.mean(
+                (Dbd < self.ball_thresh).float() * ((torch.ones(len(Dbd))).to(Dbd.device) * 2 - Dbd))
+
+        elif self.dynamic_mode == 'real':
+            Drd = torch.index_select(Dr, 0, Id)
+            spectral_dynamic_loss = torch.mean(self.dynamic_threshold_loss(Drd))
+
+        if self.dynamic_mode == 'none':
+            spectral_loss = spectral_static_loss
+        else:
+            spectral_loss = spectral_static_loss + spectral_dynamic_loss
+
+        return x_pred_loss, z_pred_loss, spectral_loss
+
+
+class KoopmanVAE(nn.Module):
+    def __init__(self, args):
+        super(KoopmanVAE, self).__init__()
 
         # Net structure.
         self.channels = args.channels  # frame feature
@@ -175,6 +304,10 @@ class CDSVAE(nn.Module):
         # Frame encoder and decoder
         self.encoder = encoder(args)
         self.decoder = decoder(args)
+
+        # Dropout and Koopman layers
+        self.drop = torch.nn.Dropout(args.dropout)
+        self.koopman_layer = KoopmanLayer(args)
 
         # Prior of the dynamics is an LSTM
         self.z_prior_lstm_ly1 = nn.LSTMCell(self.hidden_dim, self.hidden_dim)
@@ -188,32 +321,42 @@ class CDSVAE(nn.Module):
         self.z_logvar = nn.Linear(self.hidden_dim, self.hidden_dim)
 
         # The loss function.
-        self.loss_func = nn.MSELoss(reduction="sum")
+        self.loss_func = nn.MSELoss()
 
         # The loss weights.
-        self.kld_z_weight = args.weight_z
+        # The loss of the reconstruction is implicitly set to 1.0, the rest of the losses are relative to it.
+        self.kld_z_weight = args.weight_kl_z
+        self.x_pred_weight = args.weight_x_pred
+        self.z_pred_weight = args.weight_z_pred
+        self.spectral_weight = args.weight_spectral
 
     def loss(self, x, outputs, batch_size):
         # Unpack the outputs.
-        z_post_mean, z_post_logvar, z_post, z_prior_mean, z_prior_logvar, z_prior, recon_x = outputs
+        z_mean_post, z_logvar_post, z_post, z_mean_prior, z_logvar_prior, z_prior, z_post_koopman, z_post_dropout, Ct, koopman_recon_x, dropout_recon_x = outputs
 
         # Calculate the reconstruction loss.
-        reconstruction_loss = self.loss_func(recon_x, x)
+        reconstruction_loss = self.loss_func(dropout_recon_x, x)
 
-        # Calculate the kld_z.
-        z_post_var = torch.exp(z_post_logvar)  # [128, 8, 32]
-        z_prior_var = torch.exp(z_prior_logvar)  # [128, 8, 32]
-        kld_z = 0.5 * torch.sum(z_prior_logvar - z_post_logvar +
-                                ((z_post_var + torch.pow(z_post_mean - z_prior_mean, 2)) / z_prior_var) - 1)
-
-        # Normalize the losses by the batch size.
-        reconstruction_loss /= batch_size
+        # Calculate the kld_z and normalize it by the batch size.
+        z_post_var = torch.exp(z_logvar_post)  # [128, 8, 32]
+        z_prior_var = torch.exp(z_logvar_prior)  # [128, 8, 32]
+        kld_z = 0.5 * torch.sum(z_logvar_prior - z_logvar_post +
+                                ((z_post_var + torch.pow(z_mean_post - z_mean_prior, 2)) / z_prior_var) - 1)
         kld_z /= batch_size
 
-        # Calculate the loss.
-        loss = reconstruction_loss + self.kld_z_weight * kld_z
+        x_pred_loss, z_pred_loss, spectral_loss = self.koopman_layer.loss(dropout_recon_x, koopman_recon_x,
+                                                                          z_post_dropout, z_post_koopman, Ct)
 
-        return loss, reconstruction_loss, kld_z
+        # Calculate the loss.
+        # The weight of the reconstruction loss is implicitly 1.
+        # The rest of the weights are relative to it.
+        loss = reconstruction_loss + \
+               self.kld_z_weight * kld_z + \
+               self.x_pred_weight * x_pred_loss + \
+               self.z_pred_weight * z_pred_loss + \
+               self.spectral_weight * spectral_loss
+
+        return loss, (reconstruction_loss, kld_z, x_pred_loss, z_pred_loss, spectral_loss)
 
     def encode_and_sample_post(self, x):
         # Encode the input.
@@ -233,10 +376,15 @@ class CDSVAE(nn.Module):
         # Get the prior.
         z_mean_prior, z_logvar_prior, z_prior = self.sample_z_prior_train(z_post, random_sampling=self.training)
 
-        # Reconstruct the data.
-        recon_x = self.decoder(z_post)
+        # Pass the posterior through the Koopman module and the Dropout layer.
+        z_post_koopman, Ct = self.koopman_layer(z_post)
+        z_post_dropout = self.drop(z_post)
 
-        return z_mean_post, z_logvar_post, z_post, z_mean_prior, z_logvar_prior, z_prior, recon_x
+        # Reconstruct the data.
+        koopman_recon_x = self.decoder(z_post_koopman)
+        dropout_recon_x = self.decoder(z_post_dropout)
+
+        return z_mean_post, z_logvar_post, z_post, z_mean_prior, z_logvar_prior, z_prior, z_post_koopman, z_post_dropout, Ct, koopman_recon_x, dropout_recon_x
 
     def forward_fixed_motion(self, x):
         z_mean_prior, z_logvar_prior, _ = self.sample_z(x.size(0), random_sampling=self.training)
