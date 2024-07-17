@@ -66,7 +66,7 @@ if __name__ == '__main__':
     dropout_recon_x2, koopman_matrix2, z_post2 = outputs[-1], outputs[-3], outputs[-4]
 
     # Perform the swap.
-    indices=[0, 0]
+    indices=[0, 1]
     swap(model, dropout_recon_x, z_post, koopman_matrix, indices, args.static_size, plot=True)
 
 # # --------------- Performing multi-factor swap --------------- #
