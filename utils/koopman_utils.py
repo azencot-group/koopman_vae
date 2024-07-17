@@ -1,10 +1,11 @@
 import os, sys
-
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 import torch
-from general_utils import t_to_np, imshow_seqeunce
 import numpy as np
+
+# Add the parent directory to the Python path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from utils.general_utils import t_to_np, imshow_seqeunce
 
 
 def get_unique_num(D, I, static_number):

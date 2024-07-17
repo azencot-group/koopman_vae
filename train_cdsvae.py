@@ -1,5 +1,3 @@
-import utils
-from utils.general_utils import load_dataset, load_checkpoint, save_checkpoint, reorder, set_seed_device
 import os
 import argparse
 import neptune
@@ -7,8 +5,10 @@ import torch
 import torch.optim as optim
 import torch.utils.data
 from torch.utils.data import DataLoader
-from model import KoopmanVAE
 from tqdm import tqdm
+
+from utils.general_utils import load_dataset, load_checkpoint, save_checkpoint, reorder, set_seed_device, init_weights
+from model import KoopmanVAE
 
 
 def define_args():
@@ -228,7 +228,7 @@ if __name__ == '__main__':
 
     # Create model.
     model = KoopmanVAE(args).to(device=args.device)
-    model.apply(utils.general_utils.init_weights)
+    model.apply(init_weights)
 
     # Set the optimizer.
     args.optimizer = optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.999))
