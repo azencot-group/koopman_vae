@@ -43,8 +43,8 @@ class encoder(nn.Module):
         self.image_height = args.image_height
         self.image_width = args.image_width
         self.conv_dim = args.conv_dim
-        self.conv_output_dim = args.k_dim
-        self.hidden_dim = args.hidden_dim
+        self.conv_output_dim = args.conv_output_dim
+        self.encoder_lstm_output_dim = args.encoder_lstm_output_dim
         self.lstm = args.lstm
 
         # input is (nc) x 64 x 64
@@ -59,10 +59,11 @@ class encoder(nn.Module):
 
         # Declare the LSTM layer if needed.
         if self.lstm in ['encoder', 'both']:
-            self.lstm_layer = nn.LSTM(self.conv_output_dim, self.hidden_dim, batch_first=True, bias=True,
+            self.lstm_layer = nn.LSTM(self.conv_output_dim, self.encoder_lstm_output_dim, batch_first=True, bias=True,
                                       bidirectional=False)
+            self._output_size = self.encoder_lstm_output_dim
         else:
-            self.conv_output_dim = self.hidden_dim
+            self._output_size = self.conv_output_dim
 
         self.c5 = nn.Sequential(
             nn.Conv2d(self.conv_dim * 8, self.conv_output_dim, 4, 1, 0),
@@ -85,8 +86,12 @@ class encoder(nn.Module):
         if self.lstm in ['encoder', 'both']:
             h5 = self.lstm_layer(h5)[0]
 
-        # Return b x t x hidden_dim
+        # Return b x t x output_size
         return h5
+
+    @property
+    def output_size(self):
+        return self._output_size
 
 
 class upconv(nn.Module):
@@ -106,25 +111,25 @@ class decoder(nn.Module):
     def __init__(self, args):
         super(decoder, self).__init__()
 
-        # Set the needed parameters for the encoder.
+        # Set the needed parameters for the decoder.
         self.frames = args.frames
         self.channels = args.channels
         self.image_height = args.image_height
         self.image_width = args.image_width
         self.conv_dim = args.conv_dim
-        self.k_dim = args.k_dim
-        self.hidden_dim = args.hidden_dim
+        self.decoder_lstm_output_size = args.decoder_lstm_output_size
+        self.k_dim = args.decoder_lstm_output_size
         self.lstm = args.lstm
 
         # Declare the LSTM layer and the first convolution layer size.
         if self.lstm in ['decoder', 'both']:
-            self.lstm_layer = nn.LSTM(self.hidden_dim, self.k_dim, batch_first=True, bias=True,
+            self.lstm_layer = nn.LSTM(self.k_dim, self.decoder_lstm_output_size, batch_first=True, bias=True,
                                       bidirectional=False)
 
-            first_conv_size = self.k_dim
+            first_conv_size = self.decoder_lstm_output_size
 
         else:
-            first_conv_size = self.hidden_dim
+            first_conv_size = self.k_dim
 
         self.upc1 = nn.Sequential(
             # input is Z, going into a convolution
@@ -148,9 +153,9 @@ class decoder(nn.Module):
     def forward(self, x):
         # LSTM if needed.
         if self.lstm in ['decoder', 'both']:
-            x = self.lstm_layer(x.reshape(-1, self.frames, self.hidden_dim))[0].reshape(-1, self.k_dim, 1, 1)
+            x = self.lstm_layer(x.reshape(-1, self.frames, self.k_dim))[0].reshape(-1, self.decoder_lstm_output_size, 1, 1)
         else:
-            x = x.reshape(-1, self.hidden_dim, 1, 1)
+            x = x.reshape(-1, self.k_dim, 1, 1)
 
         d1 = self.upc1(x)
         d2 = self.upc2(d1)
@@ -172,7 +177,7 @@ class KoopmanLayer(nn.Module):
 
         # Layer structure.
         self.frames = args.frames
-        self.k_dim = args.k_dim
+        self.k_dim = args.decoder_lstm_output_size
 
         # Eigenvalues arguments.
         self.static_size = args.static_size
@@ -298,7 +303,8 @@ class KoopmanVAE(nn.Module):
 
         # Net structure.
         self.channels = args.channels  # frame feature
-        self.hidden_dim = args.hidden_dim
+        self.k_dim = args.decoder_lstm_output_size
+        self.prior_lstm_inner_size = args.prior_lstm_inner_size
         self.frames = args.frames
 
         # Frame encoder and decoder
@@ -310,15 +316,15 @@ class KoopmanVAE(nn.Module):
         self.koopman_layer = KoopmanLayer(args)
 
         # Prior of the dynamics is an LSTM
-        self.z_prior_lstm_ly1 = nn.LSTMCell(self.hidden_dim, self.hidden_dim)
-        self.z_prior_lstm_ly2 = nn.LSTMCell(self.hidden_dim, self.hidden_dim)
+        self.z_prior_lstm_ly1 = nn.LSTMCell(self.k_dim, args.prior_lstm_inner_size)
+        self.z_prior_lstm_ly2 = nn.LSTMCell(args.prior_lstm_inner_size, args.prior_lstm_inner_size)
 
-        self.z_prior_mean = nn.Linear(self.hidden_dim, self.hidden_dim)
-        self.z_prior_logvar = nn.Linear(self.hidden_dim, self.hidden_dim)
+        self.z_prior_mean = nn.Linear(args.prior_lstm_inner_size, self.k_dim)
+        self.z_prior_logvar = nn.Linear(args.prior_lstm_inner_size, self.k_dim)
 
         # Each timestep is for each z so no reshaping and feature mixing
-        self.z_mean = nn.Linear(self.hidden_dim, self.hidden_dim)
-        self.z_logvar = nn.Linear(self.hidden_dim, self.hidden_dim)
+        self.z_mean = nn.Linear(self.encoder.output_size, self.k_dim)
+        self.z_logvar = nn.Linear(self.encoder.output_size, self.k_dim)
 
         # The loss function.
         self.loss_func = nn.MSELoss()
@@ -464,11 +470,11 @@ class KoopmanVAE(nn.Module):
         z_logvars = None
         batch_size = n_sample
 
-        z_t = torch.zeros(batch_size, self.hidden_dim).cuda()
-        h_t_ly1 = torch.zeros(batch_size, self.hidden_dim).cuda()
-        c_t_ly1 = torch.zeros(batch_size, self.hidden_dim).cuda()
-        h_t_ly2 = torch.zeros(batch_size, self.hidden_dim).cuda()
-        c_t_ly2 = torch.zeros(batch_size, self.hidden_dim).cuda()
+        z_t = torch.zeros(batch_size, self.k_dim).cuda()
+        h_t_ly1 = torch.zeros(batch_size, self.self.prior_lstm_inner_size).cuda()
+        c_t_ly1 = torch.zeros(batch_size, self.self.prior_lstm_inner_size).cuda()
+        h_t_ly2 = torch.zeros(batch_size, self.self.prior_lstm_inner_size).cuda()
+        c_t_ly2 = torch.zeros(batch_size, self.self.prior_lstm_inner_size).cuda()
 
         for i in range(n_frame):
             # two layer LSTM and two one-layer FC
@@ -498,11 +504,11 @@ class KoopmanVAE(nn.Module):
         z_logvars = None
         batch_size = z_post.shape[0]
 
-        z_t = torch.zeros(batch_size, self.hidden_dim).cuda()
-        h_t_ly1 = torch.zeros(batch_size, self.hidden_dim).cuda()
-        c_t_ly1 = torch.zeros(batch_size, self.hidden_dim).cuda()
-        h_t_ly2 = torch.zeros(batch_size, self.hidden_dim).cuda()
-        c_t_ly2 = torch.zeros(batch_size, self.hidden_dim).cuda()
+        z_t = torch.zeros(batch_size, self.k_dim).cuda()
+        h_t_ly1 = torch.zeros(batch_size, self.prior_lstm_inner_size).cuda()
+        c_t_ly1 = torch.zeros(batch_size, self.prior_lstm_inner_size).cuda()
+        h_t_ly2 = torch.zeros(batch_size, self.prior_lstm_inner_size).cuda()
+        c_t_ly2 = torch.zeros(batch_size, self.prior_lstm_inner_size).cuda()
 
         for i in range(self.frames):
             # two layer LSTM and two one-layer FC
@@ -532,13 +538,13 @@ class KoopmanVAE(nn.Module):
         z_logvars = None
 
         # All states are initially set to 0, especially z_0 = 0
-        z_t = torch.zeros(batch_size, self.hidden_dim).cuda()
+        z_t = torch.zeros(batch_size, self.k_dim).cuda()
         # z_mean_t = torch.zeros(batch_size, self.z_dim)
         # z_logvar_t = torch.zeros(batch_size, self.z_dim)
-        h_t_ly1 = torch.zeros(batch_size, self.hidden_dim).cuda()
-        c_t_ly1 = torch.zeros(batch_size, self.hidden_dim).cuda()
-        h_t_ly2 = torch.zeros(batch_size, self.hidden_dim).cuda()
-        c_t_ly2 = torch.zeros(batch_size, self.hidden_dim).cuda()
+        h_t_ly1 = torch.zeros(batch_size, self.self.prior_lstm_inner_size).cuda()
+        c_t_ly1 = torch.zeros(batch_size, self.self.prior_lstm_inner_size).cuda()
+        h_t_ly2 = torch.zeros(batch_size, self.self.prior_lstm_inner_size).cuda()
+        c_t_ly2 = torch.zeros(batch_size, self.self.prior_lstm_inner_size).cuda()
         for _ in range(self.frames):
             # h_t, c_t = self.z_prior_lstm(z_t, (h_t, c_t))
             # two layer LSTM and two one-layer FC
@@ -586,7 +592,7 @@ class KoopmanVAE(nn.Module):
 class classifier_Sprite_all(nn.Module):
     def __init__(self, args):
         super(classifier_Sprite_all, self).__init__()
-        self.k_dim = args.k_dim  # frame feature
+        self.k_dim = args.decoder_lstm_output_size  # frame feature
         self.channels = args.channels  # frame feature
         self.hidden_dim = args.rnn_size
         self.frames = args.frames
