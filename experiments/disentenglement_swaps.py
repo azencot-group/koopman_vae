@@ -1,120 +1,73 @@
-import os, sys
-
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-import argparse
 import torch
+import sys
+import os
 import numpy as np
-from utils.general_utils import load_checkpoint, reorder
+
+# Add the parent directory to the Python path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+import train_cdsvae
+from model import KoopmanVAE
+from utils.general_utils import reorder, set_seed_device
+from utils.koopman_utils import swap
 
 
 def define_args():
-    parser = argparse.ArgumentParser(description="Sprites SKD")
+    # Define the arguments of the model.
+    parser = train_cdsvae.define_args()
 
-    # general
-    parser.add_argument('--cuda', action='store_false')
-    parser.add_argument('--epochs', type=int, default=1000)
-    parser.add_argument('--lr', type=float, default=1e-3)
-    parser.add_argument('--weight_decay', type=float, default=0)
-    parser.add_argument('--seed', type=int, default=1234)
-
-    # data
-    parser.add_argument("--dataset_path", default='./dataset')
-    parser.add_argument("--dataset", default='Sprites')
-    parser.add_argument('--batch_size', type=int, default=32, metavar='N')
-
-    # model
-    parser.add_argument('--arch', type=str, default='KoopmanCNN')
-    parser.add_argument('--conv_dim', type=int, default=32)
-    parser.add_argument('--dropout', type=float, default=0.2)
-    parser.add_argument('--rnn', type=str, default='both',
-                        help='encoder decoder LSTM strengths. Can be: "none", "encoder","decoder", "both"')
-    parser.add_argument('--k_dim', type=int, default=40)
-    parser.add_argument('--hidden_dim', type=int, default=40, help='the hidden dimension of the output decoder lstm')
-    parser.add_argument('--lstm_dec_bi', type=bool, default=False)  # nimrod added
-
-    # loss params
-    parser.add_argument('--w_rec', type=float, default=15.0)
-    parser.add_argument('--w_pred', type=float, default=1.0)
-    parser.add_argument('--w_eigs', type=float, default=1.0)
-
-    # eigen values system params
-    parser.add_argument('--static_size', type=int, default=8)
-    parser.add_argument('--static_mode', type=str, default='norm', choices=['norm', 'real', 'ball'])
-    parser.add_argument('--dynamic_mode', type=str, default='ball',
-                        choices=['strict', 'thresh', 'ball', 'real', 'none'])
-
-    # thresholds
-    parser.add_argument('--ball_thresh', type=float, default=0.6)  # related to 'ball' dynamic mode
-    parser.add_argument('--dynamic_thresh', type=float, default=0.5)  # related to 'thresh', 'real'
-    parser.add_argument('--eigs_thresh', type=float, default=.5)  # related to 'norm' static mode loss
-
-    # other
-    parser.add_argument('--noise', type=str, default='none', help='adding blur to the sample (in the pixel space')
+    parser.add_argument('--model_path', type=str, default=None, help='ckpt directory')
+    parser.add_argument('--model_name', type=str, default=None)
 
     return parser
 
 
-def set_seed_device(seed):
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
-    torch.manual_seed(seed)
-    np.random.seed(seed)
+if __name__ == '__main__':
+    # Define the different arguments and parser them.
+    parser = define_args()
+    args = parser.parse_args()
 
-    # Use cuda if available
-    if torch.cuda.is_available():
-        device = torch.device("cuda:0")
+    # set PRNG seed
+    args.device = set_seed_device(args.seed)
+
+    # Define the CUDA gpu.
+    os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
+
+    # Load the model.
+    if args.model_path is not None:
+        saved_model = torch.load(args.model_path)
     else:
-        device = torch.device("cpu")
-    return device
+        raise ValueError('missing checkpoint')
 
+    dtype = torch.cuda.FloatTensor
 
-# hyperparameters
-parser = define_args()
-args = parser.parse_args()
+    # Create the model.
+    model = KoopmanVAE(args).to(device=args.device)
+    model.load_state_dict(saved_model, strict=False)
+    model.eval()
 
-# data parameters
-args.n_frames = 8
-args.n_channels = 3
-args.n_height = 64
-args.n_width = 64
+    # Load the data.
+    data = np.load('/cs/cs_groups/azencot_group/inon/koopman_vae/dataset/batch1.npy', allow_pickle=True).item()
+    data2 = np.load('/cs/cs_groups/azencot_group/inon/koopman_vae/dataset/batch2.npy', allow_pickle=True).item()
 
-# set PRNG seed
-args.device = set_seed_device(args.seed)
+    # Reorder the data
+    x, label_A, label_D = reorder(data['images']), data['A_label'][:, 0], data['D_label'][:, 0]
+    x2 = reorder(data2['images'])
 
-# create model
-from model import KoopmanCNN
+    X = x.to(args.device)
+    X2 = x2.to(args.device)
 
-model = KoopmanCNN(args).to(device=args.device)
+    # First batch.
+    outputs = model(X)
+    dropout_recon_x, koopman_matrix, z_post = outputs[-1], outputs[-3], outputs[-4]
 
-# load the model
-checkpoint_name = '/cs/cs_groups/azencot_group/inon/SKD_for_kvae/weights/sprites_weights.model'
-load_checkpoint(model, checkpoint_name)
-model.eval()
+    # Second batch.
+    outputs2 = model(X2)
+    dropout_recon_x2, koopman_matrix2, z_post2 = outputs[-1], outputs[-3], outputs[-4]
 
-# load data
-data = np.load('/cs/cs_groups/azencot_group/inon/SKD_for_kvae/dataset/batch1.npy', allow_pickle=True).item()
-data2 = np.load('/cs/cs_groups/azencot_group/inon/SKD_for_kvae/dataset/batch2.npy', allow_pickle=True).item()
-x, label_A, label_D = reorder(data['images']), data['A_label'][:, 0], data['D_label'][:, 0]
-x2 = reorder(data2['images'])
-
-X = x.to(args.device)
-X2 = x2.to(args.device)
-
-# first batch
-outputs = model(X)
-X_dec_te, Ct_te, Z = outputs[0], outputs[-1], outputs[2]
-
-# second batch
-outputs2 = model(X2)
-X_dec_te2, Ct_te2, Z2 = outputs2[0], outputs2[-1], outputs2[2]
-
-# --------------- Performing 2-factor swap --------------- #
-from utils.general_utils import swap
-
-""" Given 2 samples in a batch. It Swap their static and dynamic features"""
-indices = [0, 1]
-swap(model, X_dec_te, Z, Ct_te, indices, args.static_size, plot=True)
+    # Perform the swap.
+    indices=[0, 0]
+    swap(model, dropout_recon_x, z_post, koopman_matrix, indices, args.static_size, plot=True)
 
 # # --------------- Performing multi-factor swap --------------- #
 # """ Sprites have 4 factors of variation in the static subspace(appearance of the character):

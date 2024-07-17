@@ -566,6 +566,11 @@ class KoopmanVAE(nn.Module):
                 z_logvars = torch.cat((z_logvars, z_logvar_t.unsqueeze(1)), dim=1)
         return z_means, z_logvars, z_out
 
+    def decode(self, Z):
+        X_dec = self.decoder(Z)
+
+        return X_dec
+
     def swap(self, x, first_idx, second_idx, plot=True):
         s_mean, s_logvar, s, d_mean_post, d_logvar_post, d = self.encode_and_sample_post(x)
         s1, d1 = s_mean[first_idx][None, :].expand(self.frames, s.shape[-1]), d_mean_post[0]

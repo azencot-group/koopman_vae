@@ -57,7 +57,7 @@ if __name__ == '__main__':
         X)
 
     # visualize
-    index = 1
+    index = 0
     titles = ['Original image:', 'Reconstructed image koopman:', 'Original image:', 'Reconstructed image dropout:']
     imshow_seqeunce([[x[index]], [koopman_recon_x[index]], [x[index]], [dropout_recon_x[index]]],
                     titles=np.asarray([titles]).T, figsize=(50, 10), fontsize=50)
