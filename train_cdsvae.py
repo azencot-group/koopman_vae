@@ -50,8 +50,14 @@ def define_args():
     parser.add_argument('--dropout', type=float, default=0.2)
     parser.add_argument('--k_dim', default=40, type=int,
                         help='Dimensionality of the Koopman module.')
-    parser.add_argument('--hidden_size_koopman_multiplier', default=2, type=int,
-                        help='Multiplier for the k_dim in order to set the hidden size.')
+    parser.add_argument('--conv_output_dim', default=40, type=int,
+                        help='Dimensionality of the output of the encoder\'s convolution.')
+    parser.add_argument('--encoder_lstm_output_dim', default=40, type=int,
+                        help='Dimensionality of the output of the encoder\'s LSTM.')
+    parser.add_argument('--prior_lstm_inner_size', default=40, type=int,
+                        help='Dimensionality of the prior LSTM.')
+    parser.add_argument('--decoder_lstm_output_size', default=40, type=int,
+                        help='Dimensionality of the output of the decoder\'s LSTM.')
 
     # Koopman layer implementation parameters.
     parser.add_argument('--static_size', type=int, default=7)
@@ -63,12 +69,12 @@ def define_args():
     parser.add_argument('--eigs_thresh', type=float, default=.5)  # related to 'norm' static mode loss
 
     # Loss parameters.
-    parser.add_argument('--weight_kl_z', default=1.0, type=float, help='Weight of KLD between prior and posterior.')
-    parser.add_argument('--weight_x_pred', default=1.0, type=float, help='Weight of Koopman matrix leading to right '
+    parser.add_argument('--weight_kl_z', default=5e-5, type=float, help='Weight of KLD between prior and posterior.')
+    parser.add_argument('--weight_x_pred', default=0.07, type=float, help='Weight of Koopman matrix leading to right '
                                                                          'decoding.')
-    parser.add_argument('--weight_z_pred', default=1.0, type=float, help='Weight of Koopman matrix leading to right '
+    parser.add_argument('--weight_z_pred', default=0.07, type=float, help='Weight of Koopman matrix leading to right '
                                                                          'transformation in time.')
-    parser.add_argument('--weight_spectral', default=1.0, type=float, help='Weight of the spectral loss.')
+    parser.add_argument('--weight_spectral', default=0.07, type=float, help='Weight of the spectral loss.')
 
     # Currently unused, maybe in the future.
     parser.add_argument('--type_gt', type=str, default='action', help='action, skin, top, pant, hair')
@@ -229,26 +235,25 @@ if __name__ == '__main__':
                            )
 
     # Create the name of the model.
-    args.model_name = f'CDSVAE_Sprite' \
+    args.model_name = f'KoopmanVAE_Sprite' \
                       f'_epochs={args.epochs}' \
-                      f'_bs={args.batch_size}' \
                       f'_lstm={args.lstm}' \
                       f'_conv={args.conv_dim}' \
                       f'_k_dim={args.k_dim}' \
-                      f'_hidden_size_koopman_multiplier={args.hidden_size_koopman_multiplier}' \
-                      f'_dropout={args.dropout}' \
-                      f'_static_size={args.static_size}' \
-                      f'_dynamic_mode={args.dynamic_mode}' \
-                      f'_dropout={args.dropout}' \
-                      f'_ballthresh={args.ball_thresh}' \
-                      f'_dynamicthresh={args.dynamic_thresh}' \
-                      f'_eigsthresh={args.eigs_thresh}' \
-                      f'_lr={args.lr}' \
-                      f'_weight_kl_z={args.weight_kl_z}' \
-                      f'_weight_x_pred={args.weight_x_pred}' \
-                      f'_weight_z_pred={args.weight_z_pred}' \
-                      f'_weight_spectral={args.weight_spectral}' \
-                      f'_sche={args.sche}'
+                      f'_conv_out={args.conv_output_dim}' \
+                      f'_enc_lstm={args.encoder_lstm_output_dim}' \
+                      f'_prior_in={args.prior_lstm_inner_size}' \
+                      f'_dec_lstm={args.decoder_lstm_output_size}' \
+                      f'_drop={args.dropout}' \
+                      f'_stat_num={args.static_size}' \
+                      f'_dyn_mode={args.dynamic_mode}' \
+                      f'_ball={args.ball_thresh}' \
+                      f'_dyn={args.dynamic_thresh}' \
+                      f'_eigs={args.eigs_thresh}' \
+                      f'_klz={args.weight_kl_z}' \
+                      f'_xpred={args.weight_x_pred}' \
+                      f'_zpred={args.weight_z_pred}' \
+                      f'_spec={args.weight_spectral}' \
 
     # Create the path of the checkpoint.
     os.makedirs(args.checkpoint_dir, exist_ok=True)
@@ -282,9 +287,6 @@ if __name__ == '__main__':
                              shuffle=False,
                              drop_last=True,
                              pin_memory=True)
-
-    # Calculate the size of the hidden dim.
-    args.hidden_dim = args.k_dim * args.hidden_size_koopman_multiplier
 
     # Create model.
     model = create_model(args).to(device=args.device)
