@@ -1,12 +1,15 @@
 import torch
-import argparse
+import sys
 import os
-from model import KoopmanVAE, classifier_Sprite_all
-import utils
 import numpy as np
-import train_cdsvae
 
-_PROJECT_WORKING_DIRECTORY = '/cs/cs_groups/azencot_group/inon/koopman_vae'
+# Add the parent directory to the Python path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+import train_cdsvae
+from model import KoopmanVAE
+from utils.general_utils import imshow_seqeunce, reorder, set_seed_device
+
 
 def define_args():
     # Define the arguments of the model.
@@ -16,25 +19,6 @@ def define_args():
     parser.add_argument('--model_name', type=str, default=None)
 
     return parser
-
-
-def reorder(sequence):
-    return sequence.permute(0, 1, 4, 2, 3)
-
-
-def set_seed_device(seed):
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
-    torch.manual_seed(seed)
-    np.random.seed(seed)
-
-    # Use cuda if available
-    if torch.cuda.is_available():
-        device = torch.device("cuda:0")
-    else:
-        device = torch.device("cpu")
-    return device
-
 
 if __name__ == '__main__':
     # Define the different arguments and parser them.
@@ -69,10 +53,11 @@ if __name__ == '__main__':
     X = x.to(args.device)
 
     # Pass the data through the model.
-    z_mean_post, z_logvar_post, z_post, z_mean_prior, z_logvar_prior, z_prior, z_post_koopman, z_post_dropout, Ct, koopman_recon_x, dropout_recon_x = model(X)
+    z_mean_post, z_logvar_post, z_post, z_mean_prior, z_logvar_prior, z_prior, z_post_koopman, z_post_dropout, Ct, koopman_recon_x, dropout_recon_x = model(
+        X)
 
     # visualize
-    index=1
+    index = 0
     titles = ['Original image:', 'Reconstructed image koopman:', 'Original image:', 'Reconstructed image dropout:']
-    utils.imshow_seqeunce([[x[index]], [koopman_recon_x[index]], [x[index]], [dropout_recon_x[index]]], titles=np.asarray([titles]).T, figsize=(50, 10), fontsize=50)
-
+    imshow_seqeunce([[x[index]], [koopman_recon_x[index]], [x[index]], [dropout_recon_x[index]]],
+                    titles=np.asarray([titles]).T, figsize=(50, 10), fontsize=50)
