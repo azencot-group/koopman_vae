@@ -1,8 +1,8 @@
 import torch
 import argparse
 import os
-from model import KoopmanVAE, classifier_Sprite_all
-import utils
+from model import KoopmanVAE
+from utils import general_utils
 import numpy as np
 import train_cdsvae
 

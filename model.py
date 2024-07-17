@@ -1,8 +1,8 @@
 import torch
 import torch.nn as nn
 import numpy as np
-from utils import imshow_seqeunce
-from koopman_utils import get_unique_num
+from utils.general_utils import imshow_seqeunce
+from utils.koopman_utils import get_unique_num
 
 
 class LinearUnit(nn.Module):

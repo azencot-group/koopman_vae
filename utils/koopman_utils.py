@@ -3,7 +3,7 @@ import os, sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import torch
-from utils import t_to_np, imshow_seqeunce
+from general_utils import t_to_np, imshow_seqeunce
 import numpy as np
 
 

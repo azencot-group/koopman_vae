@@ -1,24 +1,15 @@
-import math
 import torch
 import socket
-import argparse
 import os
 import numpy as np
-import random
-
-import scipy.misc
 import matplotlib.pyplot as plt
-
-from PIL import Image, ImageDraw
-
-from torch.autograd import Variable
-from torchvision import datasets, transforms
-import imageio
 from dataloader.sprite import Sprite
 
-import pickle
-
 hostname = socket.gethostname()
+
+# X, X, 64, 64, 3 -> # X, X, 3, 64, 64
+def reorder(sequence):
+    return sequence.permute(0, 1, 4, 2, 3)
 
 
 def load_npy(path):
@@ -125,6 +116,41 @@ def np_to_t(X, device='cuda'):
     return X
 
 
+def save_checkpoint(optimizer, model, epoch, checkpoint_path):
+    torch.save({
+        'epoch': epoch + 1,
+        'state_dict': model.state_dict(),
+        'optimizer': optimizer.state_dict()},
+        checkpoint_path)
+
+
+def load_checkpoint(model, optimizer, checkpoint_path):
+    try:
+        print("Loading Checkpoint from '{}'".format(checkpoint_path))
+        checkpoint = torch.load(checkpoint_path)
+        start_epoch = checkpoint['epoch']
+        model.load_state_dict(checkpoint['state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer'])
+        print("Resuming Training From Epoch {}".format(start_epoch))
+        return start_epoch
+    except:
+        print("No Checkpoint Exists At '{}'.Start Fresh Training".format(checkpoint_path))
+        return 0
+
+def set_seed_device(seed):
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+
+    # Use cuda if available
+    if torch.cuda.is_available():
+        device = torch.device("cuda:0")
+    else:
+        device = torch.device("cpu")
+    return device
+
 def imshow_seqeunce(DATA, plot=True, titles=None, figsize=(50, 10), fontsize=50):
     rc = 2 * len(DATA[0])
     fig, axs = plt.subplots(rc, 2, figsize=figsize)
@@ -146,3 +172,4 @@ def imshow_seqeunce(DATA, plot=True, titles=None, figsize=(50, 10), fontsize=50)
 
     if plot:
         plt.show()
+

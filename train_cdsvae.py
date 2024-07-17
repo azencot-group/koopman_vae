@@ -1,6 +1,5 @@
 import utils
-from utils import load_dataset
-import numpy as np
+from utils.general_utils import load_dataset, load_checkpoint, save_checkpoint, reorder, set_seed_device
 import os
 import argparse
 import neptune
@@ -8,7 +7,7 @@ import torch
 import torch.optim as optim
 import torch.utils.data
 from torch.utils.data import DataLoader
-from model import KoopmanVAE, classifier_Sprite_all
+from model import KoopmanVAE
 from tqdm import tqdm
 
 
@@ -80,21 +79,6 @@ def define_args():
     parser.add_argument('--type_gt', type=str, default='action', help='action, skin, top, pant, hair')
 
     return parser
-
-
-def set_seed_device(seed):
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    np.random.seed(seed)
-
-    # Use cuda if available
-    if torch.cuda.is_available():
-        device = torch.device("cuda:0")
-    else:
-        device = torch.device("cpu")
-    return device
 
 
 def train(args, model):
@@ -178,52 +162,6 @@ def log_losses(run, loss, losses, test=False):
     run[f'{mode}/spectral_loss'].append(spectral_loss)
 
 
-# X, X, 64, 64, 3 -> # X, X, 3, 64, 64
-def reorder(sequence):
-    return sequence.permute(0, 1, 4, 2, 3)
-
-
-def get_batch(train_loader):
-    while True:
-        for sequence in train_loader:
-            yield sequence
-
-
-def print_log(print_string, log=None, verbose=True):
-    if verbose:
-        print("{}".format(print_string))
-    if log is not None:
-        log = open(log, 'a')
-        log.write('{}\n'.format(print_string))
-        log.close()
-
-
-def create_model(args):
-    return KoopmanVAE(args)
-
-
-def save_checkpoint(optimizer, model, epoch, checkpoint_path):
-    torch.save({
-        'epoch': epoch + 1,
-        'state_dict': model.state_dict(),
-        'optimizer': optimizer.state_dict()},
-        checkpoint_path)
-
-
-def load_checkpoint(model, optimizer, checkpoint_path):
-    try:
-        print("Loading Checkpoint from '{}'".format(checkpoint_path))
-        checkpoint = torch.load(checkpoint_path)
-        start_epoch = checkpoint['epoch']
-        model.load_state_dict(checkpoint['state_dict'])
-        optimizer.load_state_dict(checkpoint['optimizer'])
-        print("Resuming Training From Epoch {}".format(start_epoch))
-        return start_epoch
-    except:
-        print("No Checkpoint Exists At '{}'.Start Fresh Training".format(checkpoint_path))
-        return 0
-
-
 if __name__ == '__main__':
     # Receive the hyperparameters.
     parser = define_args()
@@ -289,8 +227,8 @@ if __name__ == '__main__':
                              pin_memory=True)
 
     # Create model.
-    model = create_model(args).to(device=args.device)
-    model.apply(utils.init_weights)
+    model = KoopmanVAE(args).to(device=args.device)
+    model.apply(utils.general_utils.init_weights)
 
     # Set the optimizer.
     args.optimizer = optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.999))
