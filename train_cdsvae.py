@@ -3,9 +3,9 @@ import argparse
 import neptune
 from neptune.utils import stringify_unsupported
 from lightning.pytorch import Trainer, seed_everything
-from lightning.pytorch.callbacks import ModelCheckpoint
+from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
 from datamodule.sprite_datamodule import SpriteDataModule
-from utils.general_utils import load_checkpoint, save_checkpoint, reorder, set_seed_device, init_weights
+from utils.general_utils import init_weights
 from model import KoopmanVAE
 
 
@@ -19,6 +19,7 @@ def define_args():
     parser.add_argument('--seed', default=1, type=int, help='manual seed')
     parser.add_argument('--evl_interval', default=10, type=int, help='evaluate every n epoch')
     parser.add_argument('--save_interval', default=10, type=int, help='save checkpoint n epoch')
+    parser.add_argument('--early_stop_patience', default=3, type=int, help='Patience for the early stop.')
     parser.add_argument('--save_n_val_best', default=5, type=int, help='The number of best models in validation to save')
     parser.add_argument('--sche', default='cosine', type=str, help='scheduler')
     parser.add_argument('--gpu', default='0', type=str, help='index of GPU to use')
@@ -125,7 +126,7 @@ if __name__ == '__main__':
     model.apply(init_weights)
 
     # Create the checkpoint callback.
-    # Create the path of the training logs dir
+    # Create the path of the logs dir
     current_training_logs_dir = os.path.join(args.models_during_training_dir, args.model_name)
     checkpoint_every_n_callback = ModelCheckpoint(dirpath=current_training_logs_dir,
                                                   filename="model-{epoch}",
@@ -133,18 +134,21 @@ if __name__ == '__main__':
                                                   save_on_train_epoch_end=True,
                                                   save_last=True)
     checkpoint_best_models = ModelCheckpoint(dirpath=current_training_logs_dir,
-                                             filename="model-{epoch}-{val_loss:.3f}",
+                                             filename="model-{epoch}-{val_loss:.4f}",
                                              save_top_k=args.save_n_val_best,
                                              monitor="val_loss",
                                              mode="min",
                                              save_last=False)
+
+    # Create the EarlyStopping callback.
+    early_stop = EarlyStopping(monitor="val_loss", patience=args.early_stop_patience, mode="min")
 
     # Train the model.
     data_module = SpriteDataModule(args.dataset_path, args.batch_size)
     trainer = Trainer(max_epochs=args.epochs,
                          check_val_every_n_epoch=args.evl_interval,
                          accelerator='gpu',
-                         callbacks=[checkpoint_every_n_callback, checkpoint_best_models],
+                         callbacks=[checkpoint_every_n_callback, checkpoint_best_models, early_stop],
                          devices=1)
     trainer.fit(model, data_module)
 
