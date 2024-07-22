@@ -48,7 +48,7 @@ if __name__ == '__main__':
     # Load the data.
     data = np.load('/cs/cs_groups/azencot_group/inon/koopman_vae/dataset/batch1.npy', allow_pickle=True).item()
     data2 = np.load('/cs/cs_groups/azencot_group/inon/koopman_vae/dataset/batch2.npy', allow_pickle=True).item()
-    x, label_A, label_D = reorder(data['images']), data['A_label'][:, 0], data['D_label'][:, 0]
+    x = reorder(data['images'])
 
     X = x.to(args.device)
 
