@@ -1,8 +1,13 @@
 import torch
 import socket
 import os
+import sys
 import numpy as np
 import matplotlib.pyplot as plt
+
+# Add the parent directory to the Python path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 from dataloader.sprite import Sprite
 
 hostname = socket.gethostname()
@@ -16,10 +21,7 @@ def load_npy(path):
     with open(path, 'rb') as f:
         return np.load(f)
 
-def load_dataset(args):
-    # Set the path of the directory.
-    dir_path = args.dataset_path
-
+def load_dataset(dir_path):
     # Load the train and the test data.
     X_train = load_npy(os.path.join(dir_path, "sprites_X_train.npy"))
     X_test = load_npy(os.path.join(dir_path, "sprites_X_test.npy"))
@@ -36,6 +38,22 @@ def load_dataset(args):
                        D_label=D_test)
 
     return train_data, test_data
+
+
+def log_losses(run, loss, losses, test=False):
+    # Unpack the losses.
+    reconstruction_loss, kld_z, x_pred_loss, z_pred_loss, spectral_loss = losses
+
+    # Set the name of the mode.
+    mode = 'test' if test else 'train'
+
+    # Log the losses
+    run[f'{mode}/sum_loss_weighted'].append(loss)
+    run[f'{mode}/reconstruction_loss'].append(reconstruction_loss)
+    run[f'{mode}/kld_z'].append(kld_z)
+    run[f'{mode}/x_pred_loss'].append(x_pred_loss)
+    run[f'{mode}/z_pred_loss'].append(z_pred_loss)
+    run[f'{mode}/spectral_loss'].append(spectral_loss)
 
 
 def clear_progressbar():
