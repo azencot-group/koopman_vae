@@ -1,6 +1,8 @@
 import os, sys
 import torch
 import numpy as np
+import matplotlib.pyplot as plt
+
 
 # Add the parent directory to the Python path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -89,6 +91,9 @@ def swap(model, X, Z, C, indices, static_size, plot=False, pick_type='norm'):
     I = get_sorted_indices(D, pick_type)
     Id, Is = static_dynamic_split(D, I, pick_type, static_size)
 
+    # Plot the eigenvalues.
+    plot_eigenvalues(D, Id, Is)
+
     # Zp* is in t x k
     Z1d, Z1s = Zp1[:, Id] @ U[Id], Zp1[:, Is] @ U[Is]
     Z2d, Z2s = Zp2[:, Id] @ U[Id], Zp2[:, Is] @ U[Is]
@@ -105,6 +110,44 @@ def swap(model, X, Z, C, indices, static_size, plot=False, pick_type='norm'):
         titles = ['S{}'.format(ii1), 'S{}'.format(ii2), 'S{}d{}s'.format(ii1, ii2), 'S{}d{}s'.format(ii2, ii1)]
         imshow_seqeunce([[S1], [S2], [S1d2s.squeeze()], [S2d1s.squeeze()]],
                         plot=plot, titles=np.asarray([titles]).T, figsize=(50, 10), fontsize=50)
+
+
+def plot_eigenvalues(eigenvalues, Id, Is):
+    dynamic_eigenvalues = eigenvalues[Id]
+    static_eigenvalues = eigenvalues[Is]
+
+    # Create the plot
+    plt.figure(figsize=(8, 6))
+
+    # Extract the real and imaginary parts of the eigenvalues
+    for i, (eigvals_type, color) in enumerate([(dynamic_eigenvalues, "blue"), (static_eigenvalues, "red")]):
+        real_parts = eigvals_type.real
+        imaginary_parts = eigvals_type.imag
+
+        plt.scatter(real_parts, imaginary_parts, color=color, marker='o', s=5)
+
+    # Plot the unit circle
+    unit_circle = plt.Circle((0, 0), 1, color='Black', fill=False, linestyle='-', label='Unit Circle')
+    plt.gca().add_artist(unit_circle)
+
+    # Add axis labels and a grid
+    plt.axhline(0, color='black', linewidth=0.5)
+    plt.axvline(0, color='black', linewidth=0.5)
+    plt.grid(color='gray', linestyle='--', linewidth=0.5)
+
+    # Set axis limits to show the entire unit circle
+    plt.xlim(-1.5, 1.5)
+    plt.ylim(-1.5, 1.5)
+
+    # Set the aspect ratio of the plot to be equal
+    plt.gca().set_aspect('equal', adjustable='box')
+
+    plt.xlabel('Real Part')
+    plt.ylabel('Imaginary Part')
+    plt.title('Eigenvalues on the Real-Imaginary Plane')
+
+    # Show the plot
+    plt.show()
 
 
 def swap_by_index(model, X, Z, C, indices, Sev_idx, Dev_idx, plot=False):
