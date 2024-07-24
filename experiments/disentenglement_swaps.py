@@ -121,16 +121,18 @@ if __name__ == '__main__':
 
     # Create the data module.
     data_module = SpriteDataModule(args.dataset_path, args.batch_size)
+    data_module.setup("")
     validation_loader = data_module.val_dataloader()
 
     # Create the model.
     model = KoopmanVAE.load_from_checkpoint(args.model_path)
     model.eval()
 
-    # Quantitative evaluation:
-    accuracy = calculate_metrics(model, classifier, validation_loader)
+    # # Quantitative evaluation:
+    # calculate_metrics(model, classifier, validation_loader)
 
-    # First batch.
+    # Qualitative evaluation:
+    x = reorder(next(iter(validation_loader))['images']).to(model.device)
     outputs = model(x)
     dropout_recon_x, koopman_matrix, z_post = outputs[-1], outputs[-3], outputs[-4]
 
