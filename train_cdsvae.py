@@ -18,10 +18,10 @@ def define_args():
     parser.add_argument('--batch_size', default=64, type=int, help='batch size')
     parser.add_argument('--epochs', default=1000, type=int, help='number of epochs to train for')
     parser.add_argument('--seed', default=1, type=int, help='manual seed')
-    parser.add_argument('--evl_interval', default=10, type=int, help='evaluate every n epoch')
-    parser.add_argument('--save_interval', default=10, type=int, help='save checkpoint n epoch')
+    parser.add_argument('--evl_interval', default=5, type=int, help='evaluate every n epoch')
+    parser.add_argument('--save_interval', default=30, type=int, help='save checkpoint n epoch')
     parser.add_argument('--early_stop_patience', default=2, type=int, help='Patience for the early stop.')
-    parser.add_argument('--save_n_val_best', default=5, type=int,
+    parser.add_argument('--save_n_val_best', default=3, type=int,
                         help='The number of best models in validation to save')
     parser.add_argument('--sche', default='cosine', type=str, help='scheduler')
     parser.add_argument('--gpu', default='0', type=str, help='index of GPU to use')
