@@ -1,13 +1,12 @@
 import os
 import argparse
 import neptune
-import torch
-import torch.optim as optim
-import torch.utils.data
-from torch.utils.data import DataLoader
-from tqdm import tqdm
-
-from utils.general_utils import load_dataset, load_checkpoint, save_checkpoint, reorder, set_seed_device, init_weights
+from neptune.utils import stringify_unsupported
+from lightning.pytorch import Trainer, seed_everything
+from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
+from lightning.pytorch.loggers import NeptuneLogger
+from datamodule.sprite_datamodule import SpriteDataModule
+from utils.general_utils import init_weights
 from model import KoopmanVAE
 
 
@@ -19,7 +18,11 @@ def define_args():
     parser.add_argument('--batch_size', default=64, type=int, help='batch size')
     parser.add_argument('--epochs', default=1000, type=int, help='number of epochs to train for')
     parser.add_argument('--seed', default=1, type=int, help='manual seed')
-    parser.add_argument('--evl_interval', default=10, type=int, help='evaluate every n epoch')
+    parser.add_argument('--evl_interval', default=5, type=int, help='evaluate every n epoch')
+    parser.add_argument('--save_interval', default=30, type=int, help='save checkpoint n epoch')
+    parser.add_argument('--early_stop_patience', default=5, type=int, help='Patience for the early stop.')
+    parser.add_argument('--save_n_val_best', default=3, type=int,
+                        help='The number of best models in validation to save')
     parser.add_argument('--sche', default='cosine', type=str, help='scheduler')
     parser.add_argument('--gpu', default='0', type=str, help='index of GPU to use')
 
@@ -70,9 +73,9 @@ def define_args():
     # Loss parameters.
     parser.add_argument('--weight_kl_z', default=5e-5, type=float, help='Weight of KLD between prior and posterior.')
     parser.add_argument('--weight_x_pred', default=0.07, type=float, help='Weight of Koopman matrix leading to right '
-                                                                         'decoding.')
+                                                                          'decoding.')
     parser.add_argument('--weight_z_pred', default=0.07, type=float, help='Weight of Koopman matrix leading to right '
-                                                                         'transformation in time.')
+                                                                          'transformation in time.')
     parser.add_argument('--weight_spectral', default=0.07, type=float, help='Weight of the spectral loss.')
 
     # Currently unused, maybe in the future.
@@ -81,96 +84,10 @@ def define_args():
     return parser
 
 
-def train(args, model):
-    # --------- training loop ------------------------------------
-    for epoch in range(args.start_epoch, args.epochs):
-        # Log the number of the epoch.
-        run['epoch'] = epoch
-
-        if epoch and scheduler is not None:
-            scheduler.step()
-
-        # Notify the model about the training mode.
-        model.train()
-
-        # Perform the train part of the epoch.
-        for i, data in tqdm(enumerate(train_loader)):
-            # Reorder the data dimensions as needed.
-            x = reorder(data['images']).to(args.device)
-
-            # Zero the gradients of the model.
-            model.zero_grad()
-
-            # Pass the data through the model.
-            outputs = model(x)
-
-            # Calculate the losses.
-            loss, losses = model.loss(x, outputs, args.batch_size)
-
-            # Log the different losses.
-            log_losses(run, loss, losses, test=False)
-
-            # Perform backpropagation.
-            loss.backward()
-            args.optimizer.step()
-
-        # Save the checkpoint.
-        save_checkpoint(args.optimizer, model, epoch, args.checkpoint_path)
-
-        # Perform evaluation for the model.
-        if epoch % args.evl_interval == 0:
-            model.eval()
-            with torch.no_grad():
-                for i, data in enumerate(test_loader):
-                    # Reorder the data dimensions as needed.
-                    x = reorder(data['images']).to(args.device)
-
-                    # Pass the data through the model.
-                    outputs = model(x)
-
-                    # Calculate the losses.
-                    loss, losses = model.loss(x, outputs, args.batch_size)
-
-                    # Log the losses.
-                    log_losses(run, loss, losses, test=True)
-
-            # Save the net in the middle.
-            net2save = model.module if torch.cuda.device_count() > 1 else model
-            torch.save(net2save.state_dict(), '%s/model%d.pth' % (args.current_training_logs_dir, epoch))
-
-    # Stop the neptune run.
-    run.stop()
-
-    # Save the model.
-    net2save = model.module if torch.cuda.device_count() > 1 else model
-    torch.save(net2save.state_dict(), os.path.join(args.final_models_dir, args.model_name + ".pth"))
-
-
-def log_losses(run, loss, losses, test=False):
-    # Unpack the losses.
-    reconstruction_loss, kld_z, x_pred_loss, z_pred_loss, spectral_loss = losses
-
-    # Set the name of the mode.
-    mode = 'test' if test else 'train'
-
-    # Log the losses
-    run[f'{mode}/sum_loss_weighted'].append(loss)
-    run[f'{mode}/reconstruction_loss'].append(reconstruction_loss)
-    run[f'{mode}/kld_z'].append(kld_z)
-    run[f'{mode}/x_pred_loss'].append(x_pred_loss)
-    run[f'{mode}/z_pred_loss'].append(z_pred_loss)
-    run[f'{mode}/spectral_loss'].append(spectral_loss)
-
-
 if __name__ == '__main__':
     # Receive the hyperparameters.
     parser = define_args()
     args = parser.parse_args()
-
-    # Initialize neptune.
-    run = neptune.init_run(project="azencot-group/koopman-vae",
-                           api_token="eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vYXBwLm5lcHR1bmUuYWkiLCJhcGlfdXJsIjoiaHR0cHM6Ly9hcHAubmVwdHVuZS5haSIsImFwaV9rZXkiOiJlNjg4NDkxMS04N2NhLTRkOTctYjY0My05NDY2OGU0NGJjZGMifQ==",
-                           )
 
     # Create the name of the model.
     args.model_name = f'KoopmanVAE_Sprite' \
@@ -193,61 +110,51 @@ if __name__ == '__main__':
                       f'_zpred={args.weight_z_pred}' \
                       f'_spec={args.weight_spectral}' \
 
-    # Create the path of the checkpoint.
-    os.makedirs(args.checkpoint_dir, exist_ok=True)
-    args.checkpoint_path = os.path.join(args.checkpoint_dir, args.model_name + ".pth")
-
-    # Create the path of the training logs dir
-    args.current_training_logs_dir = os.path.join(args.models_during_training_dir, args.model_name)
-    os.makedirs(args.current_training_logs_dir, exist_ok=True)
-
-    # Create the path of the final models dir.
-    os.makedirs(args.final_models_dir, exist_ok=True)
-
-    # Log the hyperparameters used and the name.
-    run['config/hyperparameters'] = vars(args)
-    run['config/model_name'] = args.model_name
-
-    # Set PRNG seed.
-    args.device = set_seed_device(args.seed)
-
-    # load data
-    train_data, test_data = load_dataset(args)
-    train_loader = DataLoader(train_data,
-                              num_workers=4,
-                              batch_size=args.batch_size,  # 128
-                              shuffle=True,
-                              drop_last=True,
-                              pin_memory=True)
-    test_loader = DataLoader(test_data,
-                             num_workers=4,
-                             batch_size=args.batch_size,  # 128
-                             shuffle=False,
-                             drop_last=True,
-                             pin_memory=True)
+    # Set seeds to all the randoms.
+    seed_everything(args.seed)
 
     # Create model.
-    model = KoopmanVAE(args).to(device=args.device)
+    model = KoopmanVAE(args)
     model.apply(init_weights)
 
-    # Set the optimizer.
-    args.optimizer = optim.Adam(model.parameters(), lr=args.lr, betas=(0.9, 0.999))
+    # Create the checkpoints.
+    current_training_logs_dir = os.path.join(args.models_during_training_dir, args.model_name)
+    checkpoint_every_n = ModelCheckpoint(dirpath=current_training_logs_dir,
+                                         filename="model-{epoch}",
+                                         every_n_epochs=args.save_interval,
+                                         save_on_train_epoch_end=True,
+                                         save_last=True)
+    checkpoint_best_models = ModelCheckpoint(dirpath=current_training_logs_dir,
+                                             filename="model-{epoch}-{val_loss:.4f}",
+                                             save_top_k=args.save_n_val_best,
+                                             monitor="val_loss",
+                                             mode="min",
+                                             save_last=False)
 
-    # Set the scheduler.
-    if args.sche == "cosine":
-        # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=(args.epochs+1)//2, eta_min=2e-4)
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(args.optimizer, eta_min=2e-4,
-                                                                         T_0=(args.epochs + 1) // 2, T_mult=1)
-    elif args.sche == "step":
-        scheduler = torch.optim.lr_scheduler.StepLR(args.optimizer, step_size=args.epochs // 2, gamma=0.5)
-    elif args.sche == "const":
-        scheduler = None
-    else:
-        raise ValueError('unknown scheduler')
+    # Check whether there is a checkpoint to resume from.
+    last_checkpoint_path = os.path.join(current_training_logs_dir,
+                                        checkpoint_every_n.CHECKPOINT_NAME_LAST + checkpoint_every_n.FILE_EXTENSION)
+    checkpoint_to_resume = last_checkpoint_path if os.path.isfile(last_checkpoint_path) else None
 
-    # Load the model.
-    args.start_epoch = load_checkpoint(model, args.optimizer, args.checkpoint_path)
+    # Create the EarlyStopping callback.
+    early_stop = EarlyStopping(monitor="val_loss", patience=args.early_stop_patience, mode="min")
+
+    # Create the logger.
+    neptune_logger = NeptuneLogger(
+        api_key="eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vYXBwLm5lcHR1bmUuYWkiLCJhcGlfdXJsIjoiaHR0cHM6Ly9hcHAubmVwdHVuZS5haSIsImFwaV9rZXkiOiJlNjg4NDkxMS04N2NhLTRkOTctYjY0My05NDY2OGU0NGJjZGMifQ==",
+        project="azencot-group/koopman-vae",
+        log_model_checkpoints=False)
+    neptune_logger.log_hyperparams(args)
 
     # Train the model.
-    print("number of model parameters: {}".format(sum(param.numel() for param in model.parameters())))
-    train(args, model)
+    data_module = SpriteDataModule(args.dataset_path, args.batch_size)
+    trainer = Trainer(max_epochs=args.epochs,
+                      check_val_every_n_epoch=args.evl_interval,
+                      accelerator='gpu',
+                      callbacks=[checkpoint_every_n, checkpoint_best_models, early_stop],
+                      logger=neptune_logger,
+                      devices=1)
+    trainer.fit(model, data_module, ckpt_path=checkpoint_to_resume)
+
+   # Close the logger.
+    neptune_logger.experiment.stop()

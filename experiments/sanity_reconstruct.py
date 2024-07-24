@@ -1,14 +1,14 @@
-import torch
 import sys
 import os
 import numpy as np
+from lightning.pytorch import seed_everything
 
 # Add the parent directory to the Python path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import train_cdsvae
 from model import KoopmanVAE
-from utils.general_utils import imshow_seqeunce, reorder, set_seed_device
+from utils.general_utils import imshow_seqeunce, reorder
 
 
 def define_args():
@@ -25,36 +25,21 @@ if __name__ == '__main__':
     parser = define_args()
     args = parser.parse_args()
 
-    # set PRNG seed
-    args.device = set_seed_device(args.seed)
-
-    # Define the CUDA gpu.
-    os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
-
-    # Load the model.
-    if args.model_path is not None:
-        saved_model = torch.load(args.model_path)
-    else:
-        raise ValueError('missing checkpoint')
-
-    dtype = torch.cuda.FloatTensor
+    # Set seeds to all the randoms.
+    seed_everything(args.seed)
 
     # Create the model.
-    model = KoopmanVAE(args)
-    model.load_state_dict(saved_model, strict=False)
+    model = KoopmanVAE.load_from_checkpoint(args.model_path)
     model.eval()
-    model = model.cuda()
 
     # Load the data.
     data = np.load('/cs/cs_groups/azencot_group/inon/koopman_vae/dataset/batch1.npy', allow_pickle=True).item()
     data2 = np.load('/cs/cs_groups/azencot_group/inon/koopman_vae/dataset/batch2.npy', allow_pickle=True).item()
-    x = reorder(data['images'])
-
-    X = x.to(args.device)
+    x = reorder(data['images']).to(model.device)
 
     # Pass the data through the model.
     z_mean_post, z_logvar_post, z_post, z_mean_prior, z_logvar_prior, z_prior, z_post_koopman, z_post_dropout, Ct, koopman_recon_x, dropout_recon_x = model(
-        X)
+        x)
 
     # visualize
     index = 0

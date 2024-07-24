@@ -1,7 +1,11 @@
+import argparse
+
 import torch
 import torch.nn as nn
 import numpy as np
-from utils.general_utils import imshow_seqeunce
+import lightning as L
+
+from utils.general_utils import imshow_seqeunce, reorder
 from utils.koopman_utils import get_unique_num
 
 
@@ -153,7 +157,8 @@ class decoder(nn.Module):
     def forward(self, x):
         # LSTM if needed.
         if self.lstm in ['decoder', 'both']:
-            x = self.lstm_layer(x.reshape(-1, self.frames, self.k_dim))[0].reshape(-1, self.decoder_lstm_output_size, 1, 1)
+            x = self.lstm_layer(x.reshape(-1, self.frames, self.k_dim))[0].reshape(-1, self.decoder_lstm_output_size, 1,
+                                                                                   1)
         else:
             x = x.reshape(-1, self.k_dim, 1, 1)
 
@@ -171,9 +176,6 @@ class KoopmanLayer(nn.Module):
 
     def __init__(self, args):
         super(KoopmanLayer, self).__init__()
-
-        # The device.
-        self.device = args.device
 
         # Layer structure.
         self.frames = args.frames
@@ -228,7 +230,7 @@ class KoopmanLayer(nn.Module):
         Dr = torch.real(D)
 
         # Compute the distance of each eigenvalue to 1.
-        Db = torch.sqrt((Dr - torch.ones(len(Dr)).to(Dr.device)) ** 2 + torch.imag(D) ** 2)
+        Db = torch.sqrt((Dr - torch.ones(len(Dr)).to(Dr)) ** 2 + torch.imag(D) ** 2)
 
         # ----- static loss ----- #
         Id, new_static_number = None, None
@@ -237,14 +239,14 @@ class KoopmanLayer(nn.Module):
             new_static_number = get_unique_num(D, I, self.static_size)
             Is, Id = I[-new_static_number:], I[:-new_static_number]
             Dns = torch.index_select(Dn, 0, Is)
-            spectral_static_loss = self.loss_func(Dns, torch.ones(len(Dns)).to(Dns.device))
+            spectral_static_loss = self.loss_func(Dns, torch.ones(len(Dns)).to(Dns))
 
         elif self.static_mode == 'real':
             I = torch.argsort(Dr)
             new_static_number = get_unique_num(D, I, self.static_size)
             Is, Id = I[-new_static_number:], I[:-new_static_number]
             Drs = torch.index_select(Dr, 0, Is)
-            spectral_static_loss = self.loss_func(Drs, torch.ones(len(Drs)).to(Drs.device))
+            spectral_static_loss = self.loss_func(Drs, torch.ones(len(Drs)).to(Drs))
 
         elif self.static_mode == 'ball':
             I = torch.argsort(Db)
@@ -252,7 +254,7 @@ class KoopmanLayer(nn.Module):
             new_static_number = get_unique_num(D, torch.flip(I, dims=[0]), self.static_size)
             Is, Id = I[:new_static_number], I[new_static_number:]
             Dbs = torch.index_select(Db, 0, Is)
-            spectral_static_loss = self.loss_func(Dbs, torch.zeros(len(Dbs)).to(Dbs.device))
+            spectral_static_loss = self.loss_func(Dbs, torch.zeros(len(Dbs)).to(Dbs))
 
         elif self.static_mode == 'space_ball':
             I = torch.argsort(Db)
@@ -263,11 +265,11 @@ class KoopmanLayer(nn.Module):
             # spectral_static_loss = torch.mean(self.sp_b_thresh(Dbs))
 
         elif self.static_mode == 'none':
-            spectral_static_loss = torch.zeros(1).to(self.device)
+            spectral_static_loss = torch.zeros(1).to(x_pred_loss)
 
         if self.dynamic_mode == 'strict':
             Dnd = torch.index_select(Dn, 0, Id)
-            spectral_dynamic_loss = self.loss_func(Dnd, self.eigs_tresh_squared * torch.ones(len(Dnd)).to(Dnd.device))
+            spectral_dynamic_loss = self.loss_func(Dnd, self.eigs_tresh_squared * torch.ones(len(Dnd)).to(Dnd))
 
         elif self.dynamic_mode == 'thresh' and self.static_mode == 'none':
             I = torch.argsort(Dn)
@@ -283,7 +285,7 @@ class KoopmanLayer(nn.Module):
         elif self.dynamic_mode == 'ball':
             Dbd = torch.index_select(Db, 0, Id)
             spectral_dynamic_loss = torch.mean(
-                (Dbd < self.ball_thresh).float() * ((torch.ones(len(Dbd))).to(Dbd.device) * 2 - Dbd))
+                (Dbd < self.ball_thresh).float() * ((torch.ones(len(Dbd))).to(Dbd) * 2 - Dbd))
 
         elif self.dynamic_mode == 'real':
             Drd = torch.index_select(Dr, 0, Id)
@@ -297,9 +299,10 @@ class KoopmanLayer(nn.Module):
         return x_pred_loss, z_pred_loss, spectral_loss
 
 
-class KoopmanVAE(nn.Module):
-    def __init__(self, args):
+class KoopmanVAE(L.LightningModule):
+    def __init__(self, args: argparse.Namespace):
         super(KoopmanVAE, self).__init__()
+        self.save_hyperparameters("args")
 
         # Net structure.
         self.channels = args.channels  # frame feature
@@ -335,6 +338,79 @@ class KoopmanVAE(nn.Module):
         self.x_pred_weight = args.weight_x_pred
         self.z_pred_weight = args.weight_z_pred
         self.spectral_weight = args.weight_spectral
+
+        # Args for general use.
+        self.sche = args.sche
+        self.epochs = args.epochs
+        self.lr = args.lr
+        self.batch_size = args.batch_size
+
+    def configure_optimizers(self):
+        # Initialize the optimizer.
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.lr, betas=(0.9, 0.999))
+
+        # Set the scheduler.
+        if self.sche == "cosine":
+            # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=(args.epochs+1)//2, eta_min=2e-4)
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, eta_min=2e-4,
+                                                                             T_0=(self.epochs + 1) // 2, T_mult=1)
+        elif self.sche == "step":
+            scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=self.epochs // 2, gamma=0.5)
+        elif self.sche == "const":
+            scheduler = None
+        else:
+            raise ValueError('unknown scheduler')
+
+        return [optimizer], [scheduler]
+
+    def log_losses(self, loss, losses, val=False):
+        # Unpack the losses.
+        reconstruction_loss, kld_z, x_pred_loss, z_pred_loss, spectral_loss = losses
+
+        # Set the name of the mode.
+        mode = 'val' if val else 'train'
+
+        # Log the losses
+        self.logger.log_metrics({
+            f'{mode}/sum_loss_weighted': loss,
+            f'{mode}/reconstruction_loss': reconstruction_loss,
+            f'{mode}/kld_z': kld_z,
+            f'{mode}/x_pred_loss': x_pred_loss,
+            f'{mode}/z_pred_loss': z_pred_loss,
+            f'{mode}/spectral_loss': spectral_loss
+        })
+
+    def training_step(self, batch, batch_idx):
+        # Reorder the data dimensions as needed.
+        x = reorder(batch['images'])
+
+        # Pass the data through the model.
+        outputs = self(x)
+
+        # Calculate the losses.
+        loss, losses = self.loss(x, outputs, self.batch_size)
+
+        # Log the different losses and the number of the epoch.
+        self.log_losses(loss, losses, val=False)
+        self.log('epoch', self.current_epoch)
+
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        # Reorder the data dimensions as needed.
+        x = reorder(batch['images'])
+
+        # Pass the data through the model.
+        outputs = self(x)
+
+        # Calculate the losses.
+        loss, losses = self.loss(x, outputs, self.batch_size)
+
+        # Log the losses to Neptune.
+        self.log_losses(loss, losses, val=True)
+
+        # Log the validation for monitor.
+        self.log("val_loss", loss, on_epoch=True)
 
     def loss(self, x, outputs, batch_size):
         # Unpack the outputs.
@@ -431,7 +507,7 @@ class KoopmanVAE(nn.Module):
         z_mean_prior, z_logvar_prior, _ = self.sample_z(x.size(0), random_sampling=True)
         f_mean, f_logvar, f_post, z_mean_post, z_logvar_post, z_post = self.encode_and_sample_post(x)
 
-        f_prior = self.reparameterize(torch.zeros(f_mean.shape).cuda(), torch.zeros(f_logvar.shape).cuda(),
+        f_prior = self.reparameterize(torch.zeros(f_mean.shape).to(x), torch.zeros(f_logvar.shape).to(x),
                                       random_sampling=True)
         f_expand = f_prior.unsqueeze(1).expand(-1, self.frames, self.f_dim)
         zf = torch.cat((z_mean_post, f_expand), dim=2)
@@ -470,11 +546,11 @@ class KoopmanVAE(nn.Module):
         z_logvars = None
         batch_size = n_sample
 
-        z_t = torch.zeros(batch_size, self.k_dim).cuda()
-        h_t_ly1 = torch.zeros(batch_size, self.self.prior_lstm_inner_size).cuda()
-        c_t_ly1 = torch.zeros(batch_size, self.self.prior_lstm_inner_size).cuda()
-        h_t_ly2 = torch.zeros(batch_size, self.self.prior_lstm_inner_size).cuda()
-        c_t_ly2 = torch.zeros(batch_size, self.self.prior_lstm_inner_size).cuda()
+        z_t = torch.zeros(batch_size, self.k_dim).to(self.device)
+        h_t_ly1 = torch.zeros(batch_size, self.self.prior_lstm_inner_size).to(self.device)
+        c_t_ly1 = torch.zeros(batch_size, self.self.prior_lstm_inner_size).to(self.device)
+        h_t_ly2 = torch.zeros(batch_size, self.self.prior_lstm_inner_size).to(self.device)
+        c_t_ly2 = torch.zeros(batch_size, self.self.prior_lstm_inner_size).to(self.device)
 
         for i in range(n_frame):
             # two layer LSTM and two one-layer FC
@@ -504,11 +580,11 @@ class KoopmanVAE(nn.Module):
         z_logvars = None
         batch_size = z_post.shape[0]
 
-        z_t = torch.zeros(batch_size, self.k_dim).cuda()
-        h_t_ly1 = torch.zeros(batch_size, self.prior_lstm_inner_size).cuda()
-        c_t_ly1 = torch.zeros(batch_size, self.prior_lstm_inner_size).cuda()
-        h_t_ly2 = torch.zeros(batch_size, self.prior_lstm_inner_size).cuda()
-        c_t_ly2 = torch.zeros(batch_size, self.prior_lstm_inner_size).cuda()
+        z_t = torch.zeros(batch_size, self.k_dim).to(self.device)
+        h_t_ly1 = torch.zeros(batch_size, self.prior_lstm_inner_size).to(self.device)
+        c_t_ly1 = torch.zeros(batch_size, self.prior_lstm_inner_size).to(self.device)
+        h_t_ly2 = torch.zeros(batch_size, self.prior_lstm_inner_size).to(self.device)
+        c_t_ly2 = torch.zeros(batch_size, self.prior_lstm_inner_size).to(self.device)
 
         for i in range(self.frames):
             # two layer LSTM and two one-layer FC
@@ -538,13 +614,13 @@ class KoopmanVAE(nn.Module):
         z_logvars = None
 
         # All states are initially set to 0, especially z_0 = 0
-        z_t = torch.zeros(batch_size, self.k_dim).cuda()
+        z_t = torch.zeros(batch_size, self.k_dim).to(self.device)
         # z_mean_t = torch.zeros(batch_size, self.z_dim)
         # z_logvar_t = torch.zeros(batch_size, self.z_dim)
-        h_t_ly1 = torch.zeros(batch_size, self.self.prior_lstm_inner_size).cuda()
-        c_t_ly1 = torch.zeros(batch_size, self.self.prior_lstm_inner_size).cuda()
-        h_t_ly2 = torch.zeros(batch_size, self.self.prior_lstm_inner_size).cuda()
-        c_t_ly2 = torch.zeros(batch_size, self.self.prior_lstm_inner_size).cuda()
+        h_t_ly1 = torch.zeros(batch_size, self.self.prior_lstm_inner_size).to(self.device)
+        c_t_ly1 = torch.zeros(batch_size, self.self.prior_lstm_inner_size).to(self.device)
+        h_t_ly2 = torch.zeros(batch_size, self.self.prior_lstm_inner_size).to(self.device)
+        c_t_ly2 = torch.zeros(batch_size, self.self.prior_lstm_inner_size).to(self.device)
         for _ in range(self.frames):
             # h_t, c_t = self.z_prior_lstm(z_t, (h_t, c_t))
             # two layer LSTM and two one-layer FC
