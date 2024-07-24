@@ -4,6 +4,7 @@ import neptune
 from neptune.utils import stringify_unsupported
 from lightning.pytorch import Trainer, seed_everything
 from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
+from lightning.pytorch.loggers import NeptuneLogger
 from datamodule.sprite_datamodule import SpriteDataModule
 from utils.general_utils import init_weights
 from model import KoopmanVAE
@@ -19,7 +20,7 @@ def define_args():
     parser.add_argument('--seed', default=1, type=int, help='manual seed')
     parser.add_argument('--evl_interval', default=10, type=int, help='evaluate every n epoch')
     parser.add_argument('--save_interval', default=10, type=int, help='save checkpoint n epoch')
-    parser.add_argument('--early_stop_patience', default=3, type=int, help='Patience for the early stop.')
+    parser.add_argument('--early_stop_patience', default=2, type=int, help='Patience for the early stop.')
     parser.add_argument('--save_n_val_best', default=5, type=int,
                         help='The number of best models in validation to save')
     parser.add_argument('--sche', default='cosine', type=str, help='scheduler')
@@ -88,11 +89,6 @@ if __name__ == '__main__':
     parser = define_args()
     args = parser.parse_args()
 
-    # Initialize neptune.
-    run = neptune.init_run(project="azencot-group/koopman-vae",
-                           api_token="eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vYXBwLm5lcHR1bmUuYWkiLCJhcGlfdXJsIjoiaHR0cHM6Ly9hcHAubmVwdHVuZS5haSIsImFwaV9rZXkiOiJlNjg4NDkxMS04N2NhLTRkOTctYjY0My05NDY2OGU0NGJjZGMifQ==",
-                           )
-
     # Create the name of the model.
     args.model_name = f'KoopmanVAE_Sprite' \
                       f'_epochs={args.epochs}' \
@@ -113,20 +109,15 @@ if __name__ == '__main__':
                       f'_xpred={args.weight_x_pred}' \
                       f'_zpred={args.weight_z_pred}' \
                       f'_spec={args.weight_spectral}' \
- \
-    # Log the hyperparameters used and the name.
-    run['config/hyperparameters'] = stringify_unsupported(args)
-    run['config/model_name'] = args.model_name
 
     # Set seeds to all the randoms.
     seed_everything(args.seed)
 
     # Create model.
-    model = KoopmanVAE(args, run)
+    model = KoopmanVAE(args)
     model.apply(init_weights)
 
-    # Create the checkpoint callback.
-    # Create the path of the logs dir
+    # Create the checkpoints.
     current_training_logs_dir = os.path.join(args.models_during_training_dir, args.model_name)
     checkpoint_every_n = ModelCheckpoint(dirpath=current_training_logs_dir,
                                          filename="model-{epoch}",
@@ -148,13 +139,22 @@ if __name__ == '__main__':
     # Create the EarlyStopping callback.
     early_stop = EarlyStopping(monitor="val_loss", patience=args.early_stop_patience, mode="min")
 
+    # Create the logger.
+    neptune_logger = NeptuneLogger(
+        api_key="eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vYXBwLm5lcHR1bmUuYWkiLCJhcGlfdXJsIjoiaHR0cHM6Ly9hcHAubmVwdHVuZS5haSIsImFwaV9rZXkiOiJlNjg4NDkxMS04N2NhLTRkOTctYjY0My05NDY2OGU0NGJjZGMifQ==",
+        project="azencot-group/koopman-vae",
+        log_model_checkpoints=False)
+    neptune_logger.log_hyperparams(args)
+
     # Train the model.
     data_module = SpriteDataModule(args.dataset_path, args.batch_size)
     trainer = Trainer(max_epochs=args.epochs,
                       check_val_every_n_epoch=args.evl_interval,
                       accelerator='gpu',
                       callbacks=[checkpoint_every_n, checkpoint_best_models, early_stop],
+                      logger=neptune_logger,
                       devices=1)
     trainer.fit(model, data_module, ckpt_path=checkpoint_to_resume)
 
-    run.stop()
+   # Close the logger.
+    neptune_logger.experiment.stop()

@@ -5,7 +5,7 @@ import torch.nn as nn
 import numpy as np
 import lightning as L
 
-from utils.general_utils import imshow_seqeunce, load_dataset, load_checkpoint, save_checkpoint, reorder, set_seed_device, init_weights, log_losses
+from utils.general_utils import imshow_seqeunce, reorder
 from utils.koopman_utils import get_unique_num
 
 
@@ -157,7 +157,8 @@ class decoder(nn.Module):
     def forward(self, x):
         # LSTM if needed.
         if self.lstm in ['decoder', 'both']:
-            x = self.lstm_layer(x.reshape(-1, self.frames, self.k_dim))[0].reshape(-1, self.decoder_lstm_output_size, 1, 1)
+            x = self.lstm_layer(x.reshape(-1, self.frames, self.k_dim))[0].reshape(-1, self.decoder_lstm_output_size, 1,
+                                                                                   1)
         else:
             x = x.reshape(-1, self.k_dim, 1, 1)
 
@@ -362,6 +363,22 @@ class KoopmanVAE(L.LightningModule):
 
         return [optimizer], [scheduler]
 
+    def log_losses(self, loss, losses, val=False):
+        # Unpack the losses.
+        reconstruction_loss, kld_z, x_pred_loss, z_pred_loss, spectral_loss = losses
+
+        # Set the name of the mode.
+        mode = 'val' if val else 'train'
+
+        # Log the losses
+        self.logger.log_metrics({
+            f'{mode}/sum_loss_weighted': loss,
+            f'{mode}/reconstruction_loss': reconstruction_loss,
+            f'{mode}/kld_z': kld_z,
+            f'{mode}/x_pred_loss': x_pred_loss,
+            f'{mode}/z_pred_loss': z_pred_loss,
+            f'{mode}/spectral_loss': spectral_loss
+        })
 
     def training_step(self, batch, batch_idx):
         # Reorder the data dimensions as needed.
@@ -374,11 +391,10 @@ class KoopmanVAE(L.LightningModule):
         loss, losses = self.loss(x, outputs, self.batch_size)
 
         # Log the different losses and the number of the epoch.
-        log_losses(self.run, loss, losses, test=False)
-        self.run['epoch'] = self.current_epoch
+        self.log_losses(loss, losses, val=False)
+        self.log('epoch', self.current_epoch)
 
         return loss
-
 
     def validation_step(self, batch, batch_idx):
         # Reorder the data dimensions as needed.
@@ -391,11 +407,10 @@ class KoopmanVAE(L.LightningModule):
         loss, losses = self.loss(x, outputs, self.batch_size)
 
         # Log the losses to Neptune.
-        log_losses(self.run, loss, losses, test=True)
+        self.log_losses(loss, losses, val=True)
 
-        # Log the loss for monitor.
-        self.log("val_loss", loss)
-
+        # Log the validation for monitor.
+        self.log("val_loss", loss, on_epoch=True)
 
     def loss(self, x, outputs, batch_size):
         # Unpack the outputs.

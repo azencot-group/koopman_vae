@@ -40,22 +40,6 @@ def load_dataset(dir_path):
     return train_data, test_data
 
 
-def log_losses(run, loss, losses, test=False):
-    # Unpack the losses.
-    reconstruction_loss, kld_z, x_pred_loss, z_pred_loss, spectral_loss = losses
-
-    # Set the name of the mode.
-    mode = 'test' if test else 'train'
-
-    # Log the losses
-    run[f'{mode}/sum_loss_weighted'].append(loss)
-    run[f'{mode}/reconstruction_loss'].append(reconstruction_loss)
-    run[f'{mode}/kld_z'].append(kld_z)
-    run[f'{mode}/x_pred_loss'].append(x_pred_loss)
-    run[f'{mode}/z_pred_loss'].append(z_pred_loss)
-    run[f'{mode}/spectral_loss'].append(spectral_loss)
-
-
 def clear_progressbar():
     # moves up 3 lines
     print("\033[2A")
@@ -155,19 +139,6 @@ def load_checkpoint(model, optimizer, checkpoint_path):
         print("No Checkpoint Exists At '{}'.Start Fresh Training".format(checkpoint_path))
         return 0
 
-def set_seed_device(seed):
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    np.random.seed(seed)
-
-    # Use cuda if available
-    if torch.cuda.is_available():
-        device = torch.device("cuda:0")
-    else:
-        device = torch.device("cpu")
-    return device
 
 def imshow_seqeunce(DATA, plot=True, titles=None, figsize=(50, 10), fontsize=50):
     rc = 2 * len(DATA[0])
