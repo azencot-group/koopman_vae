@@ -648,25 +648,3 @@ class KoopmanVAE(L.LightningModule):
         X_dec = self.decoder(Z)
 
         return X_dec
-
-    def swap(self, x, first_idx, second_idx, plot=True):
-        s_mean, s_logvar, s, d_mean_post, d_logvar_post, d = self.encode_and_sample_post(x)
-        s1, d1 = s_mean[first_idx][None, :].expand(self.frames, s.shape[-1]), d_mean_post[0]
-        s2, d2 = s_mean[second_idx][None, :].expand(self.frames, s.shape[-1]), d_mean_post[1]
-
-        s1d2 = torch.cat((d2, s1), dim=1)
-        s2d1 = torch.cat((d1, s2), dim=1)
-
-        sd = torch.stack([s1d2, s2d1])
-
-        recon_s1_d2 = self.decoder(s1d2[None, :, :])
-        recon_s2_d1 = self.decoder(s2d1[None, :, :])
-
-        # visualize
-        if plot:
-            titles = ['S{}'.format(first_idx), 'S{}'.format(second_idx), 'S{}d{}s'.format(second_idx, first_idx),
-                      'S{}d{}s'.format(first_idx, second_idx)]
-            imshow_seqeunce([[x[first_idx]], [x[second_idx]], [recon_s2_d1.squeeze()], [recon_s1_d2.squeeze()]],
-                            plot=plot, titles=np.asarray([titles]).T, figsize=(50, 10), fontsize=50)
-
-        return recon_s1_d2, recon_s2_d1

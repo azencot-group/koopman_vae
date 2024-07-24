@@ -25,6 +25,8 @@ def define_args():
 
     return parser
 
+def calculate_metrics_per_batch(model, classifier, batch, fixed="content"):
+    pass
 
 def calculate_metrics(model, classifier, val_loader, fixed="content"):
     e_values_action, e_values_skin, e_values_pant, e_values_top, e_values_hair = [], [], [], [], []
@@ -37,10 +39,10 @@ def calculate_metrics(model, classifier, val_loader, fixed="content"):
         x, label_A, label_D = reorder(data['images']), data['A_label'][:, 0], data['D_label'][:, 0]
         x, label_A, label_D = x.to(model.device), label_A.to(model.device), label_D.to(model.device)
 
-        if args.type_gt == "action":
-            recon_x_sample, recon_x = model.forward_fixed_action_for_classification(x)
-        else:
+        if fixed == "content":
             recon_x_sample, recon_x = model.forward_fixed_content_for_classification(x)
+        else:
+            recon_x_sample, recon_x = model.forward_fixed_action_for_classification(x)
 
         with torch.no_grad():
             pred_action1, pred_skin1, pred_pant1, pred_top1, pred_hair1 = classifier(x)
@@ -129,7 +131,7 @@ if __name__ == '__main__':
     model.eval()
 
     # # Quantitative evaluation:
-    # calculate_metrics(model, classifier, validation_loader)
+    calculate_metrics(model, classifier, validation_loader)
 
     # Qualitative evaluation:
     x = reorder(next(iter(validation_loader))['images']).to(model.device)
