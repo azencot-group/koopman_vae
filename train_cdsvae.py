@@ -20,7 +20,8 @@ def define_args():
     parser.add_argument('--evl_interval', default=10, type=int, help='evaluate every n epoch')
     parser.add_argument('--save_interval', default=10, type=int, help='save checkpoint n epoch')
     parser.add_argument('--early_stop_patience', default=3, type=int, help='Patience for the early stop.')
-    parser.add_argument('--save_n_val_best', default=5, type=int, help='The number of best models in validation to save')
+    parser.add_argument('--save_n_val_best', default=5, type=int,
+                        help='The number of best models in validation to save')
     parser.add_argument('--sche', default='cosine', type=str, help='scheduler')
     parser.add_argument('--gpu', default='0', type=str, help='index of GPU to use')
 
@@ -91,7 +92,6 @@ if __name__ == '__main__':
     run = neptune.init_run(project="azencot-group/koopman-vae",
                            api_token="eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vYXBwLm5lcHR1bmUuYWkiLCJhcGlfdXJsIjoiaHR0cHM6Ly9hcHAubmVwdHVuZS5haSIsImFwaV9rZXkiOiJlNjg4NDkxMS04N2NhLTRkOTctYjY0My05NDY2OGU0NGJjZGMifQ==",
                            )
-    args.run = run
 
     # Create the name of the model.
     args.model_name = f'KoopmanVAE_Sprite' \
@@ -113,7 +113,7 @@ if __name__ == '__main__':
                       f'_xpred={args.weight_x_pred}' \
                       f'_zpred={args.weight_z_pred}' \
                       f'_spec={args.weight_spectral}' \
-
+ \
     # Log the hyperparameters used and the name.
     run['config/hyperparameters'] = stringify_unsupported(args)
     run['config/model_name'] = args.model_name
@@ -122,17 +122,17 @@ if __name__ == '__main__':
     seed_everything(args.seed)
 
     # Create model.
-    model = KoopmanVAE(args)
+    model = KoopmanVAE(args, run)
     model.apply(init_weights)
 
     # Create the checkpoint callback.
     # Create the path of the logs dir
     current_training_logs_dir = os.path.join(args.models_during_training_dir, args.model_name)
-    checkpoint_every_n_callback = ModelCheckpoint(dirpath=current_training_logs_dir,
-                                                  filename="model-{epoch}",
-                                                  every_n_epochs=args.save_interval,
-                                                  save_on_train_epoch_end=True,
-                                                  save_last=True)
+    checkpoint_every_n = ModelCheckpoint(dirpath=current_training_logs_dir,
+                                         filename="model-{epoch}",
+                                         every_n_epochs=args.save_interval,
+                                         save_on_train_epoch_end=True,
+                                         save_last=True)
     checkpoint_best_models = ModelCheckpoint(dirpath=current_training_logs_dir,
                                              filename="model-{epoch}-{val_loss:.4f}",
                                              save_top_k=args.save_n_val_best,
@@ -140,16 +140,21 @@ if __name__ == '__main__':
                                              mode="min",
                                              save_last=False)
 
+    # Check whether there is a checkpoint to resume from.
+    last_checkpoint_path = os.path.join(current_training_logs_dir,
+                                        checkpoint_every_n.CHECKPOINT_NAME_LAST + checkpoint_every_n.FILE_EXTENSION)
+    checkpoint_to_resume = last_checkpoint_path if os.path.isfile(last_checkpoint_path) else None
+
     # Create the EarlyStopping callback.
     early_stop = EarlyStopping(monitor="val_loss", patience=args.early_stop_patience, mode="min")
 
     # Train the model.
     data_module = SpriteDataModule(args.dataset_path, args.batch_size)
     trainer = Trainer(max_epochs=args.epochs,
-                         check_val_every_n_epoch=args.evl_interval,
-                         accelerator='gpu',
-                         callbacks=[checkpoint_every_n_callback, checkpoint_best_models, early_stop],
-                         devices=1)
-    trainer.fit(model, data_module)
+                      check_val_every_n_epoch=args.evl_interval,
+                      accelerator='gpu',
+                      callbacks=[checkpoint_every_n, checkpoint_best_models, early_stop],
+                      devices=1)
+    trainer.fit(model, data_module, ckpt_path=checkpoint_to_resume)
 
     run.stop()

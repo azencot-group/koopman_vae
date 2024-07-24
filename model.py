@@ -301,6 +301,7 @@ class KoopmanLayer(nn.Module):
 class KoopmanVAE(L.LightningModule):
     def __init__(self, args: argparse.Namespace):
         super(KoopmanVAE, self).__init__()
+        self.save_hyperparameters("args")
 
         # Net structure.
         self.channels = args.channels  # frame feature
@@ -342,7 +343,6 @@ class KoopmanVAE(L.LightningModule):
         self.epochs = args.epochs
         self.lr = args.lr
         self.batch_size = args.batch_size
-        self.run = args.run
 
     def configure_optimizers(self):
         # Initialize the optimizer.

@@ -2,13 +2,14 @@ import torch
 import sys
 import os
 import numpy as np
+from lightning.pytorch import seed_everything
 
 # Add the parent directory to the Python path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import train_cdsvae
 from model import KoopmanVAE
-from utils.general_utils import reorder, set_seed_device
+from utils.general_utils import reorder
 from utils.koopman_utils import swap
 
 
@@ -27,47 +28,25 @@ if __name__ == '__main__':
     parser = define_args()
     args = parser.parse_args()
 
-    # set PRNG seed
-    args.device = set_seed_device(args.seed)
-
-    # Define the CUDA gpu.
-    os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
-
-    # Load the model.
-    if args.model_path is not None:
-        saved_model = torch.load(args.model_path)
-    else:
-        raise ValueError('missing checkpoint')
-
-    dtype = torch.cuda.FloatTensor
+    # Set seeds to all the randoms.
+    seed_everything(args.seed)
 
     # Create the model.
-    model = KoopmanVAE(args).to(device=args.device)
-    model.load_state_dict(saved_model, strict=False)
+    model = KoopmanVAE.load_from_checkpoint(args.model_path)
     model.eval()
 
     # Load the data.
     data = np.load('/cs/cs_groups/azencot_group/inon/koopman_vae/dataset/batch1.npy', allow_pickle=True).item()
     data2 = np.load('/cs/cs_groups/azencot_group/inon/koopman_vae/dataset/batch2.npy', allow_pickle=True).item()
-
-    # Reorder the data
-    x, label_A, label_D = reorder(data['images']), data['A_label'][:, 0], data['D_label'][:, 0]
-    x2 = reorder(data2['images'])
-
-    X = x.to(args.device)
-    X2 = x2.to(args.device)
+    x = reorder(data['images']).to(model.device)
 
     # First batch.
-    outputs = model(X)
+    outputs = model(x)
     dropout_recon_x, koopman_matrix, z_post = outputs[-1], outputs[-3], outputs[-4]
-
-    # Second batch.
-    outputs2 = model(X2)
-    dropout_recon_x2, koopman_matrix2, z_post2 = outputs[-1], outputs[-3], outputs[-4]
 
     # Perform the swap.
     indices=[0, 1]
-    swap(model, dropout_recon_x, z_post, koopman_matrix, indices, args.static_size, plot=True)
+    swap(model, x, z_post, koopman_matrix, indices, args.static_size, plot=True)
 
 # # --------------- Performing multi-factor swap --------------- #
 # """ Sprites have 4 factors of variation in the static subspace(appearance of the character):
