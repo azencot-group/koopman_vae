@@ -78,8 +78,11 @@ def define_args():
                                                                           'transformation in time.')
     parser.add_argument('--weight_spectral', default=0.07, type=float, help='Weight of the spectral loss.')
 
-    # Currently unused, maybe in the future.
+    # Classifier arguments.
     parser.add_argument('--type_gt', type=str, default='action', help='action, skin, top, pant, hair')
+    parser.add_argument('--classifier_path', type=str,
+                        default=f'{project_working_directory}/judges/Sprite/sprite_judge.tar',
+                        help='Path to the classifier weights.')
 
     return parser
 
@@ -109,7 +112,7 @@ if __name__ == '__main__':
                       f'_xpred={args.weight_x_pred}' \
                       f'_zpred={args.weight_z_pred}' \
                       f'_spec={args.weight_spectral}' \
-
+ \
     # Set seeds to all the randoms.
     seed_everything(args.seed)
 
@@ -156,5 +159,5 @@ if __name__ == '__main__':
                       devices=1)
     trainer.fit(model, data_module, ckpt_path=checkpoint_to_resume)
 
-   # Close the logger.
+    # Close the logger.
     neptune_logger.experiment.stop()

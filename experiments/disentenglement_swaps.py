@@ -10,7 +10,9 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import train_cdsvae
 from model import KoopmanVAE
-from utils.general_utils import reorder
+from classifier import classifier_Sprite_all
+from utils.general_utils import KL_divergence, entropy_Hyx, entropy_Hy, inception_score, reorder
+from datamodule.sprite_datamodule import SpriteDataModule
 from utils.koopman_utils import swap
 
 
@@ -58,9 +60,6 @@ def calculate_metrics(model, classifier, val_loader, fixed="content"):
         pred2_all.append(pred2.detach().cpu().numpy())
         label_gt.append(np.argmax(label_D.detach().cpu().numpy(), axis=1))
 
-        def count_D(pred, label, mode=1):
-            return (pred // mode) == (label // mode)
-
         # action
         acc0_sample = (np.argmax(pred_action2.detach().cpu().numpy(), axis=1)
                        == np.argmax(label_D.cpu().numpy(), axis=1)).mean()
@@ -106,19 +105,6 @@ def calculate_metrics(model, classifier, val_loader, fixed="content"):
 
     print('acc: {:.2f}%, kl: {:.4f}, IS: {:.4f}, H_yx: {:.4f}, H_y: {:.4f}'.format(acc * 100, kl, IS, H_yx, H_y))
 
-    e_values_action.append(mean_acc0_sample / len(val_loader) * 100)
-    e_values_skin.append(mean_acc1_sample / len(val_loader) * 100)
-    e_values_pant.append(mean_acc2_sample / len(val_loader) * 100)
-    e_values_top.append(mean_acc3_sample / len(val_loader) * 100)
-    e_values_hair.append(mean_acc4_sample / len(val_loader) * 100)
-
-    print(
-        'final | acc: {:.2f}% | acc: {:.2f}% |acc: {:.2f}% |acc: {:.2f}% |acc: {:.2f}%'.format(np.mean(e_values_action),
-                                                                                               np.mean(e_values_skin),
-                                                                                               np.mean(e_values_pant),
-                                                                                               np.mean(e_values_top),
-                                                                                               np.mean(e_values_hair)))
-
 
 if __name__ == '__main__':
     # Define the different arguments and parser them.
@@ -128,14 +114,21 @@ if __name__ == '__main__':
     # Set seeds to all the randoms.
     seed_everything(args.seed)
 
+    # Create and load the classifier.
+    classifier = classifier_Sprite_all(args)
+    loaded_dict=torch.load(args.classifier_path)
+    classifier.load_state_dict(loaded_dict['state_dict'])
+
+    # Create the data module.
+    data_module = SpriteDataModule(args.dataset_path, args.batch_size)
+    validation_loader = data_module.val_dataloader()
+
     # Create the model.
     model = KoopmanVAE.load_from_checkpoint(args.model_path)
     model.eval()
 
-    # Load the data.
-    data = np.load('/cs/cs_groups/azencot_group/inon/koopman_vae/dataset/batch1.npy', allow_pickle=True).item()
-    data2 = np.load('/cs/cs_groups/azencot_group/inon/koopman_vae/dataset/batch2.npy', allow_pickle=True).item()
-    x = reorder(data['images']).to(model.device)
+    # Quantitative evaluation:
+    accuracy = calculate_metrics(model, classifier, validation_loader)
 
     # First batch.
     outputs = model(x)
