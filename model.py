@@ -5,8 +5,10 @@ import torch.nn as nn
 import numpy as np
 import lightning as L
 
-from utils.general_utils import reorder, t_to_np
+from utils.general_utils import reorder, t_to_np, calculate_metrics
 from utils.koopman_utils import get_unique_num, static_dynamic_split, get_sorted_indices
+from datamodule.sprite_datamodule import create_dataloader
+from dataloader.sprite import Sprite
 
 
 class LinearUnit(nn.Module):
@@ -372,7 +374,7 @@ class KoopmanVAE(L.LightningModule):
         mode = 'val' if val else 'train'
 
         # Log the losses
-        self.logger.log_metrics({
+        self.log_dict({
             f'{mode}/sum_loss_weighted': loss,
             f'{mode}/reconstruction_loss': reconstruction_loss,
             f'{mode}/kld_z': kld_z,
@@ -382,8 +384,8 @@ class KoopmanVAE(L.LightningModule):
         })
 
     def training_step(self, batch, batch_idx):
-        # Reorder the data dimensions as needed.
-        x = reorder(batch['images'])
+        # Get the data of the batch and reorder the images.
+        x, label_A, label_D = reorder(batch['images']), batch['A_label'][:, 0], batch['D_label'][:, 0]
 
         # Pass the data through the model.
         outputs = self(x)
@@ -391,9 +393,19 @@ class KoopmanVAE(L.LightningModule):
         # Calculate the losses.
         loss, losses = self.loss(x, outputs, self.batch_size)
 
-        # Log the different losses and the number of the epoch.
+        # Calculate the metrics.
+        step_dataloader = create_dataloader(Sprite(x, label_A, label_D), self.batch_size, is_train=False)
+        fixed_content_metrics = calculate_metrics(self, self.classifier, step_dataloader,fixed="content")
+        fixed_action_metrics = calculate_metrics(self, self.classifier, step_dataloader,fixed="action")
+
+        # Log the different losses.
         self.log_losses(loss, losses, val=False)
-        self.log('epoch', self.current_epoch)
+
+        # Log the metrics.
+        # TODO
+
+        # Log the epoch number.
+        self.log('epoch', self.current_epoch, on_epoch=True)
 
         return loss
 
