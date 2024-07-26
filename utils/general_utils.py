@@ -4,6 +4,7 @@ import os
 import sys
 import numpy as np
 import matplotlib.pyplot as plt
+from dataclasses import dataclass
 
 # Add the parent directory to the Python path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -161,4 +162,18 @@ def imshow_seqeunce(DATA, plot=True, titles=None, figsize=(50, 10), fontsize=50)
 
     if plot:
         plt.show()
+
+@dataclass
+class ModelMetrics:
+    accuracy: float
+    kl_divergence: float
+    inception_score: float
+    H_yx: float
+    H_y: float
+    action_accuracy: float
+    skin_accuracy: float
+    pants_accuracy: float
+    top_accuracy: float
+    hair_accuracy: float
+
 

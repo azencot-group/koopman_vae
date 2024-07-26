@@ -5,8 +5,8 @@ import torch.nn as nn
 import numpy as np
 import lightning as L
 
-from utils.general_utils import imshow_seqeunce, reorder
-from utils.koopman_utils import get_unique_num
+from utils.general_utils import reorder, t_to_np
+from utils.koopman_utils import get_unique_num, static_dynamic_split, get_sorted_indices
 
 
 class LinearUnit(nn.Module):
@@ -38,7 +38,7 @@ class conv(nn.Module):
 
 
 class encoder(nn.Module):
-    def __init__(self, args):
+    def __init__(self, args: argparse.Namespace):
         super(encoder, self).__init__()
 
         # Set the needed parameters for the encoder.
@@ -112,7 +112,7 @@ class upconv(nn.Module):
 
 
 class decoder(nn.Module):
-    def __init__(self, args):
+    def __init__(self, args: argparse.Namespace):
         super(decoder, self).__init__()
 
         # Set the needed parameters for the decoder.
@@ -174,7 +174,7 @@ class decoder(nn.Module):
 
 class KoopmanLayer(nn.Module):
 
-    def __init__(self, args):
+    def __init__(self, args: argparse.Namespace):
         super(KoopmanLayer, self).__init__()
 
         # Layer structure.
@@ -469,57 +469,64 @@ class KoopmanVAE(L.LightningModule):
 
         return z_mean_post, z_logvar_post, z_post, z_mean_prior, z_logvar_prior, z_prior, z_post_koopman, z_post_dropout, Ct, koopman_recon_x, dropout_recon_x
 
-    def forward_fixed_motion(self, x):
-        z_mean_prior, z_logvar_prior, _ = self.sample_z(x.size(0), random_sampling=self.training)
-        f_mean, f_logvar, f_post, z_mean_post, z_logvar_post, z_post = self.encode_and_sample_post(x)
+    def forward_fixed_element_for_classification(self, x, fixed_content, pick_type='norm'):
+        # Get the posterior.
+        _, _, z_post = self.encode_and_sample_post(x)
 
-        z_repeat = z_post[0].repeat(z_post.shape[0], 1, 1)
-        f_expand = f_post.unsqueeze(1).expand(-1, self.frames, self.f_dim)
-        zf = torch.cat((z_repeat, f_expand), dim=2)
-        recon_x = self.decoder(zf)
-        return f_mean, f_logvar, f_post, z_mean_post, z_logvar_post, z_post, z_mean_prior, z_logvar_prior, recon_x
+        # Pass the posterior through the Koopman module and the Dropout layer.
+        _, Ct = self.koopman_layer(z_post)
+        z_post = self.drop(z_post)
+        z_original_shape = z_post.shape
 
-    def forward_fixed_content(self, x):
-        z_mean_prior, z_logvar_prior, _ = self.sample_z(x.size(0), random_sampling=self.training)
-        f_mean, f_logvar, f_post, z_mean_post, z_logvar_post, z_post = self.encode_and_sample_post(x)
+        # Get the batch size and time series size
+        bsz, fsz = x.shape[0:2]
 
-        f_repeat = f_post[0].repeat(f_post.shape[0], 1)
-        f_expand = f_repeat.unsqueeze(1).expand(-1, self.frames, self.f_dim)
+        # Transfer the tensors to ndarrays.
+        z_post = t_to_np(z_post.reshape(bsz, fsz, -1))
+        C = t_to_np(Ct)
 
-        zf = torch.cat((z_post, f_expand), dim=2)
-        recon_x = self.decoder(zf)
-        return f_mean, f_logvar, f_post, z_mean_post, z_logvar_post, z_post, z_mean_prior, z_logvar_prior, recon_x
+        # eig
+        D, V = np.linalg.eig(C)
+        U = np.linalg.inv(V)
+
+        # Receive the static and dynamic indices.
+        I = get_sorted_indices(D, pick_type)
+        Id, Is = static_dynamic_split(D, I, pick_type, self.koopman_layer.static_size)
+
+        # Sample z from the prior distribution.
+        z_mean_prior, z_logvar_prior, z_prior = self.sample_z(bsz, random_sampling=True)
+
+        # Convert the sampled to ndarray.
+        z_sampled = t_to_np(z_prior)
+
+        # Project the original and prior on the eigenvectors plane.
+        z_orig_projected = z_post @ V
+        z_sampled_projected = z_sampled @ V
+
+        # Calculate the static and dynamic parts of the zs.
+        z_orig_dynamic, z_orig_static = z_orig_projected[:, :, Id] @ U[Id], z_orig_projected[:, :, Is] @ U[Is]
+        z_sampled_dynamic, z_sampled_static = z_sampled_projected[:, :, Id] @ U[Id], z_sampled_projected[:, :, Is] @ U[Is]
+
+        # Switch the content/motion according to the flag.
+        if fixed_content:
+            swapped_z = torch.from_numpy(np.real(z_orig_static + z_sampled_dynamic)).to(self.device)
+        else:
+            swapped_z = torch.from_numpy(np.real(z_orig_dynamic + z_sampled_static)).to(self.device)
+
+        # Reconstruct the sampled X.
+        recon_x_sample = self.decoder(swapped_z.reshape(z_original_shape))
+
+        # Reconstruct the original X.
+        z_post = torch.from_numpy(z_post).to(self.device)
+        recon_x = self.decoder(z_post.reshape(z_original_shape))
+
+        return recon_x_sample, recon_x
 
     def forward_fixed_content_for_classification(self, x):
-        z_mean_prior, z_logvar_prior, _ = self.sample_z(x.size(0), random_sampling=True)
-        f_mean, f_logvar, f_post, z_mean_post, z_logvar_post, z_post = self.encode_and_sample_post(x)
-
-        f_expand = f_mean.unsqueeze(1).expand(-1, self.frames, self.f_dim)
-
-        zf = torch.cat((z_mean_prior, f_expand), dim=2)
-        recon_x_sample = self.decoder(zf)
-
-        zf = torch.cat((z_mean_post, f_expand), dim=2)
-        recon_x = self.decoder(zf)
-
-        return recon_x_sample, recon_x
+        return self.forward_fixed_element_for_classification(x, fixed_content=True)
 
     def forward_fixed_motion_for_classification(self, x):
-        z_mean_prior, z_logvar_prior, _ = self.sample_z(x.size(0), random_sampling=True)
-        f_mean, f_logvar, f_post, z_mean_post, z_logvar_post, z_post = self.encode_and_sample_post(x)
-
-        f_prior = self.reparameterize(torch.zeros(f_mean.shape, device=x.device),
-                                      torch.zeros(f_logvar.shape, device=x.device),
-                                      random_sampling=True)
-        f_expand = f_prior.unsqueeze(1).expand(-1, self.frames, self.f_dim)
-        zf = torch.cat((z_mean_post, f_expand), dim=2)
-        recon_x_sample = self.decoder(zf)
-
-        f_expand = f_mean.unsqueeze(1).expand(-1, self.frames, self.f_dim)
-        zf = torch.cat((z_mean_post, f_expand), dim=2)
-        recon_x = self.decoder(zf)
-
-        return recon_x_sample, recon_x
+        return self.forward_fixed_element_for_classification(x, fixed_content=False)
 
     def encoder_frame(self, x):
         # input x is list of length Frames [batchsize, channels, size, size]
@@ -549,10 +556,10 @@ class KoopmanVAE(L.LightningModule):
         batch_size = n_sample
 
         z_t = torch.zeros(batch_size, self.k_dim, device=self.device)
-        h_t_ly1 = torch.zeros(batch_size, self.self.prior_lstm_inner_size, device=self.device)
-        c_t_ly1 = torch.zeros(batch_size, self.self.prior_lstm_inner_size, device=self.device)
-        h_t_ly2 = torch.zeros(batch_size, self.self.prior_lstm_inner_size, device=self.device)
-        c_t_ly2 = torch.zeros(batch_size, self.self.prior_lstm_inner_size, device=self.device)
+        h_t_ly1 = torch.zeros(batch_size, self.prior_lstm_inner_size, device=self.device)
+        c_t_ly1 = torch.zeros(batch_size, self.prior_lstm_inner_size, device=self.device)
+        h_t_ly2 = torch.zeros(batch_size, self.prior_lstm_inner_size, device=self.device)
+        c_t_ly2 = torch.zeros(batch_size, self.prior_lstm_inner_size, device=self.device)
 
         for i in range(n_frame):
             # two layer LSTM and two one-layer FC
@@ -617,12 +624,13 @@ class KoopmanVAE(L.LightningModule):
 
         # All states are initially set to 0, especially z_0 = 0
         z_t = torch.zeros(batch_size, self.k_dim, device=self.device)
+
         # z_mean_t = torch.zeros(batch_size, self.z_dim)
         # z_logvar_t = torch.zeros(batch_size, self.z_dim)
-        h_t_ly1 = torch.zeros(batch_size, self.self.prior_lstm_inner_size, device=self.device)
-        c_t_ly1 = torch.zeros(batch_size, self.self.prior_lstm_inner_size, device=self.device)
-        h_t_ly2 = torch.zeros(batch_size, self.self.prior_lstm_inner_size, device=self.device)
-        c_t_ly2 = torch.zeros(batch_size, self.self.prior_lstm_inner_size, device=self.device)
+        h_t_ly1 = torch.zeros(batch_size, self.prior_lstm_inner_size, device=self.device)
+        c_t_ly1 = torch.zeros(batch_size, self.prior_lstm_inner_size, device=self.device)
+        h_t_ly2 = torch.zeros(batch_size, self.prior_lstm_inner_size, device=self.device)
+        c_t_ly2 = torch.zeros(batch_size, self.prior_lstm_inner_size, device=self.device)
         for _ in range(self.frames):
             # h_t, c_t = self.z_prior_lstm(z_t, (h_t, c_t))
             # two layer LSTM and two one-layer FC

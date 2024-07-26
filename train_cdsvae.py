@@ -128,7 +128,7 @@ if __name__ == '__main__':
                                          save_on_train_epoch_end=True,
                                          save_last=True)
     checkpoint_best_models = ModelCheckpoint(dirpath=current_training_logs_dir,
-                                             filename="model-{epoch}-{val_loss:.4f}",
+                                             filename="model-{epoch}-{val_loss:.7f}",
                                              save_top_k=args.save_n_val_best,
                                              monitor="val_loss",
                                              mode="min",
