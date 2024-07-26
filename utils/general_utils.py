@@ -1,4 +1,5 @@
 import torch
+import torch.nn as nn
 import socket
 import os
 import sys
@@ -13,16 +14,18 @@ from dataloader.sprite import Sprite
 
 hostname = socket.gethostname()
 
+
 # X, X, 64, 64, 3 -> # X, X, 3, 64, 64
 def reorder(sequence):
     return sequence.permute(0, 1, 4, 2, 3)
 
 
-def load_npy(path):
+def load_npy(path: str):
     with open(path, 'rb') as f:
         return np.load(f)
 
-def load_dataset(dir_path):
+
+def load_dataset(dir_path: str):
     # Load the train and the test data.
     X_train = load_npy(os.path.join(dir_path, "sprites_X_train.npy"))
     X_test = load_npy(os.path.join(dir_path, "sprites_X_test.npy"))
@@ -50,10 +53,7 @@ def clear_progressbar():
     print("\033[2A")
 
 
-import torch.nn as nn
-
-
-def init_weights(model):
+def init_weights(model: nn.Module):
     for m in model.modules():
         if isinstance(m, nn.Conv2d):
             nn.init.normal_(m.weight, 0, 0.01)
@@ -102,12 +102,14 @@ def KL_divergence(P, Q, eps=1E-16):
     avg_kl_d = np.mean(sum_kl_d)
     return avg_kl_d
 
+
 def t_to_np(X):
     if isinstance(X, np.ndarray):
         return X
     if X.dtype in [torch.float32, torch.float64]:
         X = X.detach().cpu().numpy()
     return X
+
 
 def np_to_t(X, device='cuda'):
     if torch.cuda.is_available() is False:
@@ -163,6 +165,7 @@ def imshow_seqeunce(DATA, plot=True, titles=None, figsize=(50, 10), fontsize=50)
     if plot:
         plt.show()
 
+
 @dataclass
 class ModelMetrics:
     accuracy: float
@@ -175,5 +178,3 @@ class ModelMetrics:
     pants_accuracy: float
     top_accuracy: float
     hair_accuracy: float
-
-

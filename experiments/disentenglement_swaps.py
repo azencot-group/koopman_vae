@@ -2,6 +2,7 @@ import torch
 import sys
 import os
 import numpy as np
+import lightning as L
 from lightning.pytorch import seed_everything
 import torch.nn.functional as F
 import torch.nn as nn
@@ -13,7 +14,8 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import train_cdsvae
 from model import KoopmanVAE
 from classifier import classifier_Sprite_all
-from utils.general_utils import KL_divergence, entropy_Hyx, entropy_Hy, inception_score, reorder, ModelMetrics
+from utils.general_utils import KL_divergence, entropy_Hyx, entropy_Hy, inception_score, reorder, ModelMetrics, \
+    imshow_seqeunce
 from datamodule.sprite_datamodule import SpriteDataModule
 from utils.koopman_utils import swap
 
@@ -28,7 +30,10 @@ def define_args():
     return parser
 
 
-def calculate_metrics(model : nn.Module, classifier: nn.Module, val_loader: DataLoader, fixed: str = "content",
+def calculate_metrics(model: KoopmanVAE,
+                      classifier: nn.Module,
+                      val_loader: DataLoader,
+                      fixed: str = "content",
                       should_print: bool = False) -> ModelMetrics:
     e_values_action, e_values_skin, e_values_pant, e_values_top, e_values_hair = [], [], [], [], []
     mean_acc0, mean_acc1, mean_acc2, mean_acc3, mean_acc4 = 0, 0, 0, 0, 0
@@ -43,7 +48,7 @@ def calculate_metrics(model : nn.Module, classifier: nn.Module, val_loader: Data
         if fixed == "content":
             recon_x_sample, recon_x = model.forward_fixed_content_for_classification(x)
         else:
-            recon_x_sample, recon_x = model.forward_fixed_action_for_classification(x)
+            recon_x_sample, recon_x = model.forward_fixed_motion_for_classification(x)
 
         with torch.no_grad():
             pred_action1, pred_skin1, pred_pant1, pred_top1, pred_hair1 = classifier(x)
@@ -120,6 +125,31 @@ def calculate_metrics(model : nn.Module, classifier: nn.Module, val_loader: Data
                         top_accuracy=top_acc, hair_accuracy=hair_acc)
 
 
+def show_sampling(x, content_action_sampling_index, static_size=None):
+    # Get the reconstruction and the fixed motion with sampled content.
+    recon_x_sample_content, recon_x = model.forward_fixed_motion_for_classification(x, static_size=static_size)
+
+    # Get the fixed content with sampled motion.
+    recon_x_sample_motion, _ = model.forward_fixed_content_for_classification(x, static_size=static_size)
+
+    # Set the titles and show the images.
+    titles = ['Original image:', 'Reconstructed image :', 'Content Sampled:', 'Action Sampled:']
+    imshow_seqeunce([[x[content_action_sampling_index]], [recon_x[content_action_sampling_index]],
+                     [recon_x_sample_content[content_action_sampling_index]],
+                     [recon_x_sample_motion[content_action_sampling_index]]],
+                    titles=np.asarray([titles]).T, figsize=(50, 10), fontsize=50)
+
+
+def swap_within_batch(x, first_idx: int, second_idx: int):
+    # Transfer the data through the model.
+    outputs = model(x)
+    dropout_recon_x, koopman_matrix, z_post = outputs[-1], outputs[-3], outputs[-4]
+
+    # Perform the swap.
+    indices = [first_idx, second_idx]
+    swap(model, x, z_post, koopman_matrix, indices, args.static_size, plot=True)
+
+
 if __name__ == '__main__':
     # Define the different arguments and parser them.
     parser = define_args()
@@ -144,16 +174,21 @@ if __name__ == '__main__':
     model.eval()
 
     # Quantitative evaluation:
-    calculate_metrics(model, classifier, validation_loader, should_print=True)
+    calculate_metrics(model, classifier, validation_loader, should_print=True, fixed="content")
+    calculate_metrics(model, classifier, validation_loader, should_print=True, fixed="motion")
 
     # Qualitative evaluation:
-    x = reorder(next(iter(validation_loader))['images']).to(model.device)
-    outputs = model(x)
-    dropout_recon_x, koopman_matrix, z_post = outputs[-1], outputs[-3], outputs[-4]
+    # Get a new validation loader.
+    validation_loader = data_module.val_dataloader()
 
-    # Perform the swap.
-    indices = [0, 1]
-    swap(model, x, z_post, koopman_matrix, indices, args.static_size, plot=True)
+    # Get a new batch from the validation loader.
+    x = reorder(next(iter(validation_loader))['images']).to(model.device)
+
+    # Sample content and action.
+    show_sampling(x, content_action_sampling_index=1)
+
+    # Swap between two batch images.
+    swap_within_batch(x, 0, 1)
 
     # # --------------- Performing multi-factor swap --------------- #
     # """ Sprites have 4 factors of variation in the static subspace(appearance of the character):

@@ -413,6 +413,70 @@ class KoopmanVAE(L.LightningModule):
         # Log the validation for monitor.
         self.log("val_loss", loss, on_epoch=True)
 
+    def forward_fixed_element_for_classification(self, x, fixed_content, pick_type='norm', static_size=None):
+        # Set the static size if it was not set.
+        if static_size is None:
+            static_size = self.koopman_layer.static_size
+
+        # Get the posterior.
+        _, _, z_post = self.encode_and_sample_post(x)
+
+        # Pass the posterior through the Koopman module and the Dropout layer.
+        _, Ct = self.koopman_layer(z_post)
+        z_post = self.drop(z_post)
+        z_original_shape = z_post.shape
+
+        # Get the batch size and time series size
+        bsz, fsz = x.shape[0:2]
+
+        # Transfer the tensors to ndarrays.
+        z_post = t_to_np(z_post.reshape(bsz, fsz, -1))
+        C = t_to_np(Ct)
+
+        # eig
+        D, V = np.linalg.eig(C)
+        U = np.linalg.inv(V)
+
+        # Receive the static and dynamic indices.
+        I = get_sorted_indices(D, pick_type)
+        Id, Is = static_dynamic_split(D, I, pick_type, static_size)
+
+        # Sample z from the prior distribution.
+        z_mean_prior, z_logvar_prior, z_prior = self.sample_z(bsz, random_sampling=True)
+
+        # Convert the sampled to ndarray.
+        z_sampled = t_to_np(z_prior)
+
+        # Project the original and prior on the eigenvectors plane.
+        z_orig_projected = z_post @ V
+        z_sampled_projected = z_sampled @ V
+
+        # Calculate the static and dynamic parts of the zs.
+        z_orig_dynamic, z_orig_static = z_orig_projected[:, :, Id] @ U[Id], z_orig_projected[:, :, Is] @ U[Is]
+        z_sampled_dynamic, z_sampled_static = z_sampled_projected[:, :, Id] @ U[Id], z_sampled_projected[:, :, Is] @ U[
+            Is]
+
+        # Switch the content/motion according to the flag.
+        if fixed_content:
+            swapped_z = torch.from_numpy(np.real(z_orig_static + z_sampled_dynamic)).to(self.device)
+        else:
+            swapped_z = torch.from_numpy(np.real(z_orig_dynamic + z_sampled_static)).to(self.device)
+
+        # Reconstruct the sampled X.
+        recon_x_sample = self.decoder(swapped_z.reshape(z_original_shape))
+
+        # Reconstruct the original X.
+        z_post = torch.from_numpy(z_post).to(self.device)
+        recon_x = self.decoder(z_post.reshape(z_original_shape))
+
+        return recon_x_sample, recon_x
+
+    def forward_fixed_content_for_classification(self, x, static_size=None):
+        return self.forward_fixed_element_for_classification(x, fixed_content=True, static_size=static_size)
+
+    def forward_fixed_motion_for_classification(self, x, static_size=None):
+        return self.forward_fixed_element_for_classification(x, fixed_content=False, static_size=static_size)
+
     def loss(self, x, outputs, batch_size):
         # Unpack the outputs.
         z_mean_post, z_logvar_post, z_post, z_mean_prior, z_logvar_prior, z_prior, z_post_koopman, z_post_dropout, Ct, koopman_recon_x, dropout_recon_x = outputs
@@ -468,65 +532,6 @@ class KoopmanVAE(L.LightningModule):
         dropout_recon_x = self.decoder(z_post_dropout)
 
         return z_mean_post, z_logvar_post, z_post, z_mean_prior, z_logvar_prior, z_prior, z_post_koopman, z_post_dropout, Ct, koopman_recon_x, dropout_recon_x
-
-    def forward_fixed_element_for_classification(self, x, fixed_content, pick_type='norm'):
-        # Get the posterior.
-        _, _, z_post = self.encode_and_sample_post(x)
-
-        # Pass the posterior through the Koopman module and the Dropout layer.
-        _, Ct = self.koopman_layer(z_post)
-        z_post = self.drop(z_post)
-        z_original_shape = z_post.shape
-
-        # Get the batch size and time series size
-        bsz, fsz = x.shape[0:2]
-
-        # Transfer the tensors to ndarrays.
-        z_post = t_to_np(z_post.reshape(bsz, fsz, -1))
-        C = t_to_np(Ct)
-
-        # eig
-        D, V = np.linalg.eig(C)
-        U = np.linalg.inv(V)
-
-        # Receive the static and dynamic indices.
-        I = get_sorted_indices(D, pick_type)
-        Id, Is = static_dynamic_split(D, I, pick_type, self.koopman_layer.static_size)
-
-        # Sample z from the prior distribution.
-        z_mean_prior, z_logvar_prior, z_prior = self.sample_z(bsz, random_sampling=True)
-
-        # Convert the sampled to ndarray.
-        z_sampled = t_to_np(z_prior)
-
-        # Project the original and prior on the eigenvectors plane.
-        z_orig_projected = z_post @ V
-        z_sampled_projected = z_sampled @ V
-
-        # Calculate the static and dynamic parts of the zs.
-        z_orig_dynamic, z_orig_static = z_orig_projected[:, :, Id] @ U[Id], z_orig_projected[:, :, Is] @ U[Is]
-        z_sampled_dynamic, z_sampled_static = z_sampled_projected[:, :, Id] @ U[Id], z_sampled_projected[:, :, Is] @ U[Is]
-
-        # Switch the content/motion according to the flag.
-        if fixed_content:
-            swapped_z = torch.from_numpy(np.real(z_orig_static + z_sampled_dynamic)).to(self.device)
-        else:
-            swapped_z = torch.from_numpy(np.real(z_orig_dynamic + z_sampled_static)).to(self.device)
-
-        # Reconstruct the sampled X.
-        recon_x_sample = self.decoder(swapped_z.reshape(z_original_shape))
-
-        # Reconstruct the original X.
-        z_post = torch.from_numpy(z_post).to(self.device)
-        recon_x = self.decoder(z_post.reshape(z_original_shape))
-
-        return recon_x_sample, recon_x
-
-    def forward_fixed_content_for_classification(self, x):
-        return self.forward_fixed_element_for_classification(x, fixed_content=True)
-
-    def forward_fixed_motion_for_classification(self, x):
-        return self.forward_fixed_element_for_classification(x, fixed_content=False)
 
     def encoder_frame(self, x):
         # input x is list of length Frames [batchsize, channels, size, size]
