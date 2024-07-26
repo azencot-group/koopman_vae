@@ -20,7 +20,7 @@ class SpriteDataModule(L.LightningDataModule):
     def setup(self, stage: str) -> None:
         self.train_data, self.val_data = load_dataset(self.dir_path)
 
-    def train_dataloader(self):
+    def train_dataloader(self) -> DataLoader:
         return DataLoader(self.train_data,
                           num_workers=4,
                           batch_size=self.batch_size,  # 128
@@ -29,7 +29,7 @@ class SpriteDataModule(L.LightningDataModule):
                           pin_memory=True
                           )
 
-    def val_dataloader(self):
+    def val_dataloader(self) -> DataLoader:
         return DataLoader(self.val_data,
                           num_workers=4,
                           batch_size=self.batch_size,  # 128

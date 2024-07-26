@@ -5,8 +5,8 @@ import torch.nn as nn
 import numpy as np
 import lightning as L
 
-from utils.general_utils import imshow_seqeunce, reorder
-from utils.koopman_utils import get_unique_num
+from utils.general_utils import reorder, t_to_np
+from utils.koopman_utils import get_unique_num, static_dynamic_split, get_sorted_indices
 
 
 class LinearUnit(nn.Module):
@@ -38,7 +38,7 @@ class conv(nn.Module):
 
 
 class encoder(nn.Module):
-    def __init__(self, args):
+    def __init__(self, args: argparse.Namespace):
         super(encoder, self).__init__()
 
         # Set the needed parameters for the encoder.
@@ -112,7 +112,7 @@ class upconv(nn.Module):
 
 
 class decoder(nn.Module):
-    def __init__(self, args):
+    def __init__(self, args: argparse.Namespace):
         super(decoder, self).__init__()
 
         # Set the needed parameters for the decoder.
@@ -174,7 +174,7 @@ class decoder(nn.Module):
 
 class KoopmanLayer(nn.Module):
 
-    def __init__(self, args):
+    def __init__(self, args: argparse.Namespace):
         super(KoopmanLayer, self).__init__()
 
         # Layer structure.
@@ -230,7 +230,7 @@ class KoopmanLayer(nn.Module):
         Dr = torch.real(D)
 
         # Compute the distance of each eigenvalue to 1.
-        Db = torch.sqrt((Dr - torch.ones(len(Dr)).to(Dr)) ** 2 + torch.imag(D) ** 2)
+        Db = torch.sqrt((Dr - torch.ones(len(Dr), device=Dr.device)) ** 2 + torch.imag(D) ** 2)
 
         # ----- static loss ----- #
         Id, new_static_number = None, None
@@ -239,14 +239,14 @@ class KoopmanLayer(nn.Module):
             new_static_number = get_unique_num(D, I, self.static_size)
             Is, Id = I[-new_static_number:], I[:-new_static_number]
             Dns = torch.index_select(Dn, 0, Is)
-            spectral_static_loss = self.loss_func(Dns, torch.ones(len(Dns)).to(Dns))
+            spectral_static_loss = self.loss_func(Dns, torch.ones(len(Dns), device=Dns.device))
 
         elif self.static_mode == 'real':
             I = torch.argsort(Dr)
             new_static_number = get_unique_num(D, I, self.static_size)
             Is, Id = I[-new_static_number:], I[:-new_static_number]
             Drs = torch.index_select(Dr, 0, Is)
-            spectral_static_loss = self.loss_func(Drs, torch.ones(len(Drs)).to(Drs))
+            spectral_static_loss = self.loss_func(Drs, torch.ones(len(Drs), device=Drs.device))
 
         elif self.static_mode == 'ball':
             I = torch.argsort(Db)
@@ -254,7 +254,7 @@ class KoopmanLayer(nn.Module):
             new_static_number = get_unique_num(D, torch.flip(I, dims=[0]), self.static_size)
             Is, Id = I[:new_static_number], I[new_static_number:]
             Dbs = torch.index_select(Db, 0, Is)
-            spectral_static_loss = self.loss_func(Dbs, torch.zeros(len(Dbs)).to(Dbs))
+            spectral_static_loss = self.loss_func(Dbs, torch.zeros(len(Dbs), device=Dbs.device))
 
         elif self.static_mode == 'space_ball':
             I = torch.argsort(Db)
@@ -265,11 +265,12 @@ class KoopmanLayer(nn.Module):
             # spectral_static_loss = torch.mean(self.sp_b_thresh(Dbs))
 
         elif self.static_mode == 'none':
-            spectral_static_loss = torch.zeros(1).to(x_pred_loss)
+            spectral_static_loss = torch.zeros(1, device=x_pred_loss.device)
 
         if self.dynamic_mode == 'strict':
             Dnd = torch.index_select(Dn, 0, Id)
-            spectral_dynamic_loss = self.loss_func(Dnd, self.eigs_tresh_squared * torch.ones(len(Dnd)).to(Dnd))
+            spectral_dynamic_loss = self.loss_func(Dnd,
+                                                   self.eigs_tresh_squared * torch.ones(len(Dnd), device=Dnd.device))
 
         elif self.dynamic_mode == 'thresh' and self.static_mode == 'none':
             I = torch.argsort(Dn)
@@ -285,7 +286,7 @@ class KoopmanLayer(nn.Module):
         elif self.dynamic_mode == 'ball':
             Dbd = torch.index_select(Db, 0, Id)
             spectral_dynamic_loss = torch.mean(
-                (Dbd < self.ball_thresh).float() * ((torch.ones(len(Dbd))).to(Dbd) * 2 - Dbd))
+                (Dbd < self.ball_thresh).float() * ((torch.ones(len(Dbd), device=Dbd.device)) * 2 - Dbd))
 
         elif self.dynamic_mode == 'real':
             Drd = torch.index_select(Dr, 0, Id)
@@ -412,6 +413,70 @@ class KoopmanVAE(L.LightningModule):
         # Log the validation for monitor.
         self.log("val_loss", loss, on_epoch=True)
 
+    def forward_fixed_element_for_classification(self, x, fixed_content, pick_type='norm', static_size=None):
+        # Set the static size if it was not set.
+        if static_size is None:
+            static_size = self.koopman_layer.static_size
+
+        # Get the posterior.
+        _, _, z_post = self.encode_and_sample_post(x)
+
+        # Pass the posterior through the Koopman module and the Dropout layer.
+        _, Ct = self.koopman_layer(z_post)
+        z_post = self.drop(z_post)
+        z_original_shape = z_post.shape
+
+        # Get the batch size and time series size
+        bsz, fsz = x.shape[0:2]
+
+        # Transfer the tensors to ndarrays.
+        z_post = t_to_np(z_post.reshape(bsz, fsz, -1))
+        C = t_to_np(Ct)
+
+        # eig
+        D, V = np.linalg.eig(C)
+        U = np.linalg.inv(V)
+
+        # Receive the static and dynamic indices.
+        I = get_sorted_indices(D, pick_type)
+        Id, Is = static_dynamic_split(D, I, pick_type, static_size)
+
+        # Sample z from the prior distribution.
+        z_mean_prior, z_logvar_prior, z_prior = self.sample_z(bsz, random_sampling=True)
+
+        # Convert the sampled to ndarray.
+        z_sampled = t_to_np(z_prior)
+
+        # Project the original and prior on the eigenvectors plane.
+        z_orig_projected = z_post @ V
+        z_sampled_projected = z_sampled @ V
+
+        # Calculate the static and dynamic parts of the zs.
+        z_orig_dynamic, z_orig_static = z_orig_projected[:, :, Id] @ U[Id], z_orig_projected[:, :, Is] @ U[Is]
+        z_sampled_dynamic, z_sampled_static = z_sampled_projected[:, :, Id] @ U[Id], z_sampled_projected[:, :, Is] @ U[
+            Is]
+
+        # Switch the content/motion according to the flag.
+        if fixed_content:
+            swapped_z = torch.from_numpy(np.real(z_orig_static + z_sampled_dynamic)).to(self.device)
+        else:
+            swapped_z = torch.from_numpy(np.real(z_orig_dynamic + z_sampled_static)).to(self.device)
+
+        # Reconstruct the sampled X.
+        recon_x_sample = self.decoder(swapped_z.reshape(z_original_shape))
+
+        # Reconstruct the original X.
+        z_post = torch.from_numpy(z_post).to(self.device)
+        recon_x = self.decoder(z_post.reshape(z_original_shape))
+
+        return recon_x_sample, recon_x
+
+    def forward_fixed_content_for_classification(self, x, static_size=None):
+        return self.forward_fixed_element_for_classification(x, fixed_content=True, static_size=static_size)
+
+    def forward_fixed_motion_for_classification(self, x, static_size=None):
+        return self.forward_fixed_element_for_classification(x, fixed_content=False, static_size=static_size)
+
     def loss(self, x, outputs, batch_size):
         # Unpack the outputs.
         z_mean_post, z_logvar_post, z_post, z_mean_prior, z_logvar_prior, z_prior, z_post_koopman, z_post_dropout, Ct, koopman_recon_x, dropout_recon_x = outputs
@@ -468,57 +533,6 @@ class KoopmanVAE(L.LightningModule):
 
         return z_mean_post, z_logvar_post, z_post, z_mean_prior, z_logvar_prior, z_prior, z_post_koopman, z_post_dropout, Ct, koopman_recon_x, dropout_recon_x
 
-    def forward_fixed_motion(self, x):
-        z_mean_prior, z_logvar_prior, _ = self.sample_z(x.size(0), random_sampling=self.training)
-        f_mean, f_logvar, f_post, z_mean_post, z_logvar_post, z_post = self.encode_and_sample_post(x)
-
-        z_repeat = z_post[0].repeat(z_post.shape[0], 1, 1)
-        f_expand = f_post.unsqueeze(1).expand(-1, self.frames, self.f_dim)
-        zf = torch.cat((z_repeat, f_expand), dim=2)
-        recon_x = self.decoder(zf)
-        return f_mean, f_logvar, f_post, z_mean_post, z_logvar_post, z_post, z_mean_prior, z_logvar_prior, recon_x
-
-    def forward_fixed_content(self, x):
-        z_mean_prior, z_logvar_prior, _ = self.sample_z(x.size(0), random_sampling=self.training)
-        f_mean, f_logvar, f_post, z_mean_post, z_logvar_post, z_post = self.encode_and_sample_post(x)
-
-        f_repeat = f_post[0].repeat(f_post.shape[0], 1)
-        f_expand = f_repeat.unsqueeze(1).expand(-1, self.frames, self.f_dim)
-
-        zf = torch.cat((z_post, f_expand), dim=2)
-        recon_x = self.decoder(zf)
-        return f_mean, f_logvar, f_post, z_mean_post, z_logvar_post, z_post, z_mean_prior, z_logvar_prior, recon_x
-
-    def forward_fixed_content_for_classification(self, x):
-        z_mean_prior, z_logvar_prior, _ = self.sample_z(x.size(0), random_sampling=True)
-        f_mean, f_logvar, f_post, z_mean_post, z_logvar_post, z_post = self.encode_and_sample_post(x)
-
-        f_expand = f_mean.unsqueeze(1).expand(-1, self.frames, self.f_dim)
-
-        zf = torch.cat((z_mean_prior, f_expand), dim=2)
-        recon_x_sample = self.decoder(zf)
-
-        zf = torch.cat((z_mean_post, f_expand), dim=2)
-        recon_x = self.decoder(zf)
-
-        return recon_x_sample, recon_x
-
-    def forward_fixed_motion_for_classification(self, x):
-        z_mean_prior, z_logvar_prior, _ = self.sample_z(x.size(0), random_sampling=True)
-        f_mean, f_logvar, f_post, z_mean_post, z_logvar_post, z_post = self.encode_and_sample_post(x)
-
-        f_prior = self.reparameterize(torch.zeros(f_mean.shape).to(x), torch.zeros(f_logvar.shape).to(x),
-                                      random_sampling=True)
-        f_expand = f_prior.unsqueeze(1).expand(-1, self.frames, self.f_dim)
-        zf = torch.cat((z_mean_post, f_expand), dim=2)
-        recon_x_sample = self.decoder(zf)
-
-        f_expand = f_mean.unsqueeze(1).expand(-1, self.frames, self.f_dim)
-        zf = torch.cat((z_mean_post, f_expand), dim=2)
-        recon_x = self.decoder(zf)
-
-        return recon_x_sample, recon_x
-
     def encoder_frame(self, x):
         # input x is list of length Frames [batchsize, channels, size, size]
         # convert it to [batchsize, frames, channels, size, size]
@@ -546,11 +560,11 @@ class KoopmanVAE(L.LightningModule):
         z_logvars = None
         batch_size = n_sample
 
-        z_t = torch.zeros(batch_size, self.k_dim).to(self.device)
-        h_t_ly1 = torch.zeros(batch_size, self.self.prior_lstm_inner_size).to(self.device)
-        c_t_ly1 = torch.zeros(batch_size, self.self.prior_lstm_inner_size).to(self.device)
-        h_t_ly2 = torch.zeros(batch_size, self.self.prior_lstm_inner_size).to(self.device)
-        c_t_ly2 = torch.zeros(batch_size, self.self.prior_lstm_inner_size).to(self.device)
+        z_t = torch.zeros(batch_size, self.k_dim, device=self.device)
+        h_t_ly1 = torch.zeros(batch_size, self.prior_lstm_inner_size, device=self.device)
+        c_t_ly1 = torch.zeros(batch_size, self.prior_lstm_inner_size, device=self.device)
+        h_t_ly2 = torch.zeros(batch_size, self.prior_lstm_inner_size, device=self.device)
+        c_t_ly2 = torch.zeros(batch_size, self.prior_lstm_inner_size, device=self.device)
 
         for i in range(n_frame):
             # two layer LSTM and two one-layer FC
@@ -580,11 +594,11 @@ class KoopmanVAE(L.LightningModule):
         z_logvars = None
         batch_size = z_post.shape[0]
 
-        z_t = torch.zeros(batch_size, self.k_dim).to(self.device)
-        h_t_ly1 = torch.zeros(batch_size, self.prior_lstm_inner_size).to(self.device)
-        c_t_ly1 = torch.zeros(batch_size, self.prior_lstm_inner_size).to(self.device)
-        h_t_ly2 = torch.zeros(batch_size, self.prior_lstm_inner_size).to(self.device)
-        c_t_ly2 = torch.zeros(batch_size, self.prior_lstm_inner_size).to(self.device)
+        z_t = torch.zeros(batch_size, self.k_dim, device=self.device)
+        h_t_ly1 = torch.zeros(batch_size, self.prior_lstm_inner_size, device=self.device)
+        c_t_ly1 = torch.zeros(batch_size, self.prior_lstm_inner_size, device=self.device)
+        h_t_ly2 = torch.zeros(batch_size, self.prior_lstm_inner_size, device=self.device)
+        c_t_ly2 = torch.zeros(batch_size, self.prior_lstm_inner_size, device=self.device)
 
         for i in range(self.frames):
             # two layer LSTM and two one-layer FC
@@ -614,13 +628,14 @@ class KoopmanVAE(L.LightningModule):
         z_logvars = None
 
         # All states are initially set to 0, especially z_0 = 0
-        z_t = torch.zeros(batch_size, self.k_dim).to(self.device)
+        z_t = torch.zeros(batch_size, self.k_dim, device=self.device)
+
         # z_mean_t = torch.zeros(batch_size, self.z_dim)
         # z_logvar_t = torch.zeros(batch_size, self.z_dim)
-        h_t_ly1 = torch.zeros(batch_size, self.self.prior_lstm_inner_size).to(self.device)
-        c_t_ly1 = torch.zeros(batch_size, self.self.prior_lstm_inner_size).to(self.device)
-        h_t_ly2 = torch.zeros(batch_size, self.self.prior_lstm_inner_size).to(self.device)
-        c_t_ly2 = torch.zeros(batch_size, self.self.prior_lstm_inner_size).to(self.device)
+        h_t_ly1 = torch.zeros(batch_size, self.prior_lstm_inner_size, device=self.device)
+        c_t_ly1 = torch.zeros(batch_size, self.prior_lstm_inner_size, device=self.device)
+        h_t_ly2 = torch.zeros(batch_size, self.prior_lstm_inner_size, device=self.device)
+        c_t_ly2 = torch.zeros(batch_size, self.prior_lstm_inner_size, device=self.device)
         for _ in range(self.frames):
             # h_t, c_t = self.z_prior_lstm(z_t, (h_t, c_t))
             # two layer LSTM and two one-layer FC
@@ -646,78 +661,3 @@ class KoopmanVAE(L.LightningModule):
         X_dec = self.decoder(Z)
 
         return X_dec
-
-    def swap(self, x, first_idx, second_idx, plot=True):
-        s_mean, s_logvar, s, d_mean_post, d_logvar_post, d = self.encode_and_sample_post(x)
-        s1, d1 = s_mean[first_idx][None, :].expand(self.frames, s.shape[-1]), d_mean_post[0]
-        s2, d2 = s_mean[second_idx][None, :].expand(self.frames, s.shape[-1]), d_mean_post[1]
-
-        s1d2 = torch.cat((d2, s1), dim=1)
-        s2d1 = torch.cat((d1, s2), dim=1)
-
-        sd = torch.stack([s1d2, s2d1])
-
-        recon_s1_d2 = self.decoder(s1d2[None, :, :])
-        recon_s2_d1 = self.decoder(s2d1[None, :, :])
-
-        # visualize
-        if plot:
-            titles = ['S{}'.format(first_idx), 'S{}'.format(second_idx), 'S{}d{}s'.format(second_idx, first_idx),
-                      'S{}d{}s'.format(first_idx, second_idx)]
-            imshow_seqeunce([[x[first_idx]], [x[second_idx]], [recon_s2_d1.squeeze()], [recon_s1_d2.squeeze()]],
-                            plot=plot, titles=np.asarray([titles]).T, figsize=(50, 10), fontsize=50)
-
-        return recon_s1_d2, recon_s2_d1
-
-
-class classifier_Sprite_all(nn.Module):
-    def __init__(self, args):
-        super(classifier_Sprite_all, self).__init__()
-        self.k_dim = args.decoder_lstm_output_size  # frame feature
-        self.channels = args.channels  # frame feature
-        self.hidden_dim = args.rnn_size
-        self.frames = args.frames
-        from model import encoder
-        self.encoder = encoder(self.k_dim, self.channels)
-        self.bilstm = nn.LSTM(self.k_dim, self.hidden_dim, 1, bidirectional=True, batch_first=True)
-        self.cls_skin = nn.Sequential(
-            nn.Linear(self.hidden_dim * 2, self.hidden_dim),
-            nn.ReLU(True),
-            nn.Linear(self.hidden_dim, 6))
-        self.cls_top = nn.Sequential(
-            nn.Linear(self.hidden_dim * 2, self.hidden_dim),
-            nn.ReLU(True),
-            nn.Linear(self.hidden_dim, 6))
-        self.cls_pant = nn.Sequential(
-            nn.Linear(self.hidden_dim * 2, self.hidden_dim),
-            nn.ReLU(True),
-            nn.Linear(self.hidden_dim, 6))
-        self.cls_hair = nn.Sequential(
-            nn.Linear(self.hidden_dim * 2, self.hidden_dim),
-            nn.ReLU(True),
-            nn.Linear(self.hidden_dim, 6))
-        self.cls_action = nn.Sequential(
-            nn.Linear(self.hidden_dim * 2, self.hidden_dim),
-            nn.ReLU(True),
-            nn.Linear(self.hidden_dim, 9))
-
-    def encoder_frame(self, x):
-        # input x is list of length Frames [batchsize, channels, size, size]
-        # convert it to [batchsize, frames, channels, size, size]
-        # x = torch.stack(x, dim=1)
-        # [batch_size, frames, channels, size, size] to [batch_size * frames, channels, size, size]
-        x_shape = x.shape
-        x = x.view(-1, x_shape[-3], x_shape[-2], x_shape[-1])
-        x_embed = self.encoder(x)[0]
-        # to [batch_size , frames, embed_dim]
-        return x_embed.view(x_shape[0], x_shape[1], -1)
-
-    def forward(self, x):
-        conv_x = self.encoder_frame(x)
-        # pass the bidirectional lstm
-        lstm_out, _ = self.bilstm(conv_x)
-        backward = lstm_out[:, 0, self.hidden_dim:2 * self.hidden_dim]
-        frontal = lstm_out[:, self.frames - 1, 0:self.hidden_dim]
-        lstm_out_f = torch.cat((frontal, backward), dim=1)
-        return self.cls_action(lstm_out_f), self.cls_skin(lstm_out_f), self.cls_pant(lstm_out_f), \
-               self.cls_top(lstm_out_f), self.cls_hair(lstm_out_f)
