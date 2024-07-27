@@ -391,7 +391,7 @@ class KoopmanVAE(L.LightningModule):
         data_dict = {f"{directory}/{key_prefix}{key}": value for key, value in data_dict.items()}
 
         # Log the dictionary.
-        self.log_dict(data_dict, on_epoch=on_epoch)
+        self.log_dict(data_dict, on_epoch=on_epoch, sync_dist=True)
 
     def training_step(self, batch, batch_idx):
         # Get the data of the batch and reorder the images.
@@ -410,7 +410,7 @@ class KoopmanVAE(L.LightningModule):
         self.log_dataclass(model_losses, val=False)
 
         # Log the epoch number.
-        self.log('epoch', self.current_epoch, on_epoch=True, on_step=False)
+        self.log('epoch', self.current_epoch, on_epoch=True, on_step=False, sync_dist=True)
 
         return model_losses.sum_loss_weighted
 
