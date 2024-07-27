@@ -6,7 +6,7 @@ import numpy as np
 import lightning as L
 
 from classifier import classifier_Sprite_all
-from utils.general_utils import reorder, t_to_np, calculate_metrics, dataclass_to_dict
+from utils.general_utils import reorder, t_to_np, calculate_metrics, dataclass_to_dict, init_weights
 from utils.koopman_utils import get_unique_num, static_dynamic_split, get_sorted_indices
 from datamodule.sprite_datamodule import create_dataloader
 from dataloader.sprite import Sprite
@@ -358,6 +358,9 @@ class KoopmanVAE(L.LightningModule):
         loaded_dict = torch.load(args.classifier_path)
         self.classifier.load_state_dict(loaded_dict['state_dict'])
         self.classifier.eval()
+
+        # Init the model's weights.
+        self.apply(init_weights)
 
     def configure_optimizers(self):
         # Initialize the optimizer.
