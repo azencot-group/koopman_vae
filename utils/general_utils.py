@@ -1,18 +1,23 @@
+from __future__ import annotations
+
 import torch
 import torch.nn as nn
-import socket
 import os
 import sys
 import numpy as np
 import matplotlib.pyplot as plt
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, is_dataclass
+import torch.nn.functional as F
+from torch.utils.data import DataLoader
+from typing import TYPE_CHECKING
 
 # Add the parent directory to the Python path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from dataloader.sprite import Sprite
 
-hostname = socket.gethostname()
+if TYPE_CHECKING:
+    from model import KoopmanVAE
 
 
 # X, X, 64, 64, 3 -> # X, X, 3, 64, 64
@@ -166,6 +171,33 @@ def imshow_seqeunce(DATA, plot=True, titles=None, figsize=(50, 10), fontsize=50)
         plt.show()
 
 
+def dataclass_to_dict(instance):
+    """
+    This patchy function is needed (instead of asdict) because pytorch doesn't support copy.deepcopy to its tensors.
+    """
+    if not is_dataclass(instance):
+        raise TypeError("Provided instance is not a dataclass")
+
+    result = {}
+    for f in fields(instance):
+        value = getattr(instance, f.name)
+        if isinstance(value, torch.Tensor):
+            result[f.name] = value.item()  # Convert tensor to float
+        else:
+            result[f.name] = value
+
+    return result
+
+
+@dataclass
+class ModelSubMetrics:
+    action_accuracy: float
+    skin_accuracy: float
+    pants_accuracy: float
+    top_accuracy: float
+    hair_accuracy: float
+
+
 @dataclass
 class ModelMetrics:
     accuracy: float
@@ -173,8 +205,98 @@ class ModelMetrics:
     inception_score: float
     H_yx: float
     H_y: float
-    action_accuracy: float
-    skin_accuracy: float
-    pants_accuracy: float
-    top_accuracy: float
-    hair_accuracy: float
+
+
+def calculate_metrics(model: KoopmanVAE,
+                      classifier: nn.Module,
+                      val_loader: DataLoader,
+                      fixed: str = "content",
+                      should_print: bool = False) -> tuple[ModelMetrics, ModelSubMetrics]:
+    e_values_action, e_values_skin, e_values_pant, e_values_top, e_values_hair = [], [], [], [], []
+    mean_acc0, mean_acc1, mean_acc2, mean_acc3, mean_acc4 = 0, 0, 0, 0, 0
+    mean_acc0_sample, mean_acc1_sample, mean_acc2_sample, mean_acc3_sample, mean_acc4_sample = 0, 0, 0, 0, 0
+    pred1_all, pred2_all, label2_all = list(), list(), list()
+    label_gt = list()
+
+    for i, data in enumerate(val_loader):
+        x, label_A, label_D = reorder(data['images']), data['A_label'][:, 0], data['D_label'][:, 0]
+        x, label_A, label_D = x.to(model.device), label_A.to(model.device), label_D.to(model.device)
+
+        if fixed == "content":
+            recon_x_sample, recon_x = model.forward_fixed_content_for_classification(x)
+        else:
+            recon_x_sample, recon_x = model.forward_fixed_motion_for_classification(x)
+
+        with torch.no_grad():
+            pred_action1, pred_skin1, pred_pant1, pred_top1, pred_hair1 = classifier(x)
+            pred_action2, pred_skin2, pred_pant2, pred_top2, pred_hair2 = classifier(recon_x_sample)
+            pred_action3, pred_skin3, pred_pant3, pred_top3, pred_hair3 = classifier(recon_x)
+
+            pred1 = F.softmax(pred_action1, dim=1)
+            pred2 = F.softmax(pred_action2, dim=1)
+            pred3 = F.softmax(pred_action3, dim=1)
+
+        label1 = np.argmax(pred1.detach().cpu().numpy(), axis=1)
+        label2 = np.argmax(pred2.detach().cpu().numpy(), axis=1)
+        label3 = np.argmax(pred3.detach().cpu().numpy(), axis=1)
+        label2_all.append(label2)
+
+        pred1_all.append(pred1.detach().cpu().numpy())
+        pred2_all.append(pred2.detach().cpu().numpy())
+        label_gt.append(np.argmax(label_D.detach().cpu().numpy(), axis=1))
+
+        # action
+        acc0_sample = (np.argmax(pred_action2.detach().cpu().numpy(), axis=1)
+                       == np.argmax(label_D.cpu().numpy(), axis=1)).mean()
+        # skin
+        acc1_sample = (np.argmax(pred_skin2.detach().cpu().numpy(), axis=1)
+                       == np.argmax(label_A[:, 0].cpu().numpy(), axis=1)).mean()
+        # pant
+        acc2_sample = (np.argmax(pred_pant2.detach().cpu().numpy(), axis=1)
+                       == np.argmax(label_A[:, 1].cpu().numpy(), axis=1)).mean()
+        # top
+        acc3_sample = (np.argmax(pred_top2.detach().cpu().numpy(), axis=1)
+                       == np.argmax(label_A[:, 2].cpu().numpy(), axis=1)).mean()
+        # hair
+        acc4_sample = (np.argmax(pred_hair2.detach().cpu().numpy(), axis=1)
+                       == np.argmax(label_A[:, 3].cpu().numpy(), axis=1)).mean()
+        mean_acc0_sample += acc0_sample
+        mean_acc1_sample += acc1_sample
+        mean_acc2_sample += acc2_sample
+        mean_acc3_sample += acc3_sample
+        mean_acc4_sample += acc4_sample
+
+    # Calculate the accuracy in percentage.
+    action_acc = mean_acc0_sample / len(val_loader) * 100
+    skin_acc = mean_acc1_sample / len(val_loader) * 100
+    pant_acc = mean_acc2_sample / len(val_loader) * 100
+    top_acc = mean_acc3_sample / len(val_loader) * 100
+    hair_acc = mean_acc4_sample / len(val_loader) * 100
+
+    if should_print:
+        print(
+            'Test sample: action_Acc: {:.2f}% skin_Acc: {:.2f}% pant_Acc: {:.2f}% top_Acc: {:.2f}% hair_Acc: {:.2f}% '.format(
+                action_acc, skin_acc, pant_acc, top_acc, hair_acc))
+
+    label2_all = np.hstack(label2_all)
+    label_gt = np.hstack(label_gt)
+    pred1_all = np.vstack(pred1_all)
+    pred2_all = np.vstack(pred2_all)
+
+    acc = (label_gt == label2_all).mean()
+    kl = KL_divergence(pred2_all, pred1_all)
+
+    nSample_per_cls = min([(label_gt == i).sum() for i in np.unique(label_gt)])
+    index = np.hstack([np.nonzero(label_gt == i)[0][:nSample_per_cls] for i in np.unique(label_gt)]).squeeze()
+    pred2_selected = pred2_all[index]
+
+    IS = inception_score(pred2_selected)
+    H_yx = entropy_Hyx(pred2_selected)
+    H_y = entropy_Hy(pred2_selected)
+
+    if should_print:
+        print('acc: {:.2f}%, kl: {:.4f}, IS: {:.4f}, H_yx: {:.4f}, H_y: {:.4f}'.format(acc * 100, kl, IS, H_yx, H_y))
+
+    return ModelMetrics(accuracy=acc, kl_divergence=kl, inception_score=IS, H_yx=H_yx, H_y=H_y), \
+           ModelSubMetrics(action_accuracy=action_acc, skin_accuracy=skin_acc, pants_accuracy=pant_acc,
+                           top_accuracy=top_acc, hair_accuracy=hair_acc)

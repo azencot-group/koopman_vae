@@ -1,7 +1,5 @@
 import os
 import argparse
-import neptune
-from neptune.utils import stringify_unsupported
 from lightning.pytorch import Trainer, seed_everything
 from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
 from lightning.pytorch.loggers import NeptuneLogger
@@ -130,7 +128,7 @@ if __name__ == '__main__':
     checkpoint_best_models = ModelCheckpoint(dirpath=current_training_logs_dir,
                                              filename="model-{epoch}-{val_loss:.7f}",
                                              save_top_k=args.save_n_val_best,
-                                             monitor="val_loss",
+                                             monitor="val/sum_loss_weighted",
                                              mode="min",
                                              save_last=False)
 
@@ -140,7 +138,7 @@ if __name__ == '__main__':
     checkpoint_to_resume = last_checkpoint_path if os.path.isfile(last_checkpoint_path) else None
 
     # Create the EarlyStopping callback.
-    early_stop = EarlyStopping(monitor="val_loss", patience=args.early_stop_patience, mode="min")
+    early_stop = EarlyStopping(monitor="val/sum_loss_weighted", patience=args.early_stop_patience, mode="min")
 
     # Create the logger.
     neptune_logger = NeptuneLogger(

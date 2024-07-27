@@ -1,3 +1,5 @@
+import argparse
+
 import torch
 import torch.nn as nn
 
@@ -45,7 +47,7 @@ class classifier_encoder(nn.Module):
 
 
 class classifier_Sprite_all(nn.Module):
-    def __init__(self, args):
+    def __init__(self, args: argparse.Namespace):
         super(classifier_Sprite_all, self).__init__()
         self.g_dim = 128
         self.channels = args.channels  # frame feature

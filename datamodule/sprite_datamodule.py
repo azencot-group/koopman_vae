@@ -9,6 +9,15 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from utils.general_utils import load_dataset
 
 
+def create_dataloader(data, batch_size, is_train=True):
+    return DataLoader(data,
+                      num_workers=4,
+                      batch_size=batch_size,
+                      shuffle=is_train,
+                      drop_last=True,
+                      pin_memory=True
+                      )
+
 class SpriteDataModule(L.LightningDataModule):
     def __init__(self, dir_path: str, batch_size: int):
         super().__init__()
@@ -21,19 +30,7 @@ class SpriteDataModule(L.LightningDataModule):
         self.train_data, self.val_data = load_dataset(self.dir_path)
 
     def train_dataloader(self) -> DataLoader:
-        return DataLoader(self.train_data,
-                          num_workers=4,
-                          batch_size=self.batch_size,  # 128
-                          shuffle=True,
-                          drop_last=True,
-                          pin_memory=True
-                          )
+        return create_dataloader(self.train_data, self.batch_size, is_train=True)
 
     def val_dataloader(self) -> DataLoader:
-        return DataLoader(self.val_data,
-                          num_workers=4,
-                          batch_size=self.batch_size,  # 128
-                          shuffle=False,
-                          drop_last=True,
-                          pin_memory=True
-                          )
+        return create_dataloader(self.val_data, self.batch_size, is_train=False)
