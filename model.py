@@ -208,7 +208,10 @@ class KoopmanLayer(nn.Module):
 
         # Predict (broadcast) by calculating the forward in time.
         Y2 = X @ Ct
-        assert (torch.sum(torch.isnan(Y2)) == 0)
+
+        # If the calculation is not stable - return None as the latent variable and the koopman matrix.
+        if torch.sum(torch.isnan(Y2)) != 0:
+            return None, None
 
         # Concatenate t0 to the forward in time.
         Z2 = torch.cat((X[:, 0].unsqueeze(dim=1), Y2), dim=1)
@@ -393,6 +396,9 @@ class KoopmanVAE(L.LightningModule):
 
         # Pass the data through the model.
         outputs = self(x)
+        if outputs is None:
+            self.trainer.should_stop = True
+            return torch.tensor(0.0, device=x.device).requires_grad_()
 
         # Calculate the losses.
         model_losses = self.loss(x, outputs, self.batch_size)
@@ -549,6 +555,10 @@ class KoopmanVAE(L.LightningModule):
 
         # Pass the posterior through the Koopman module and the Dropout layer.
         z_post_koopman, Ct = self.koopman_layer(z_post)
+        if Ct is None:
+            self.trainer.should_stop = True
+            return None
+
         z_post_dropout = self.drop(z_post)
 
         # Reconstruct the data.
