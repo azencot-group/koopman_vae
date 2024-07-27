@@ -401,7 +401,7 @@ class KoopmanVAE(L.LightningModule):
         self.log_dataclass(model_losses, val=False)
 
         # Log the epoch number.
-        self.log('epoch', self.current_epoch, on_epoch=True)
+        self.log('epoch', self.current_epoch, on_epoch=True, on_step=False)
 
         return model_losses.sum_loss_weighted
 
@@ -426,17 +426,11 @@ class KoopmanVAE(L.LightningModule):
                                             is_train=False)
         fixed_content_metrics, _ = calculate_metrics(self, self.classifier, step_dataloader, fixed="content")
 
-        # Calculate the fixed action metrics.
-        step_dataloader = create_dataloader(Sprite(x_dataloader, A_dataloader, D_dataloader), self.batch_size,
-                                            is_train=False)
-        fixed_action_metrics, _ = calculate_metrics(self, self.classifier, step_dataloader, fixed="action")
-
         # Log the losses.
         self.log_dataclass(model_losses, val=True)
 
         # Log the metrics.
         self.log_dataclass(fixed_content_metrics, key_prefix=f"fixed_content_", val=True, on_epoch=True)
-        self.log_dataclass(fixed_action_metrics, key_prefix=f"fixed_action_", val=True, on_epoch=True)
 
     def forward_fixed_element_for_classification(self, x, fixed_content, pick_type='norm', static_size=None):
         # Set the static size if it was not set.
