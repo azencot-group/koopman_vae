@@ -140,7 +140,7 @@ if __name__ == '__main__':
     checkpoint_to_resume = last_checkpoint_path if os.path.isfile(last_checkpoint_path) else None
 
     # Create the EarlyStopping callback.
-    early_stop = EarlyStopping(monitor="val_loss", patience=args.early_stop_patience, mode="min")
+    early_stop = EarlyStopping(monitor="val/sum_loss_weighted", patience=args.early_stop_patience, mode="min")
 
     # Create the logger.
     neptune_logger = NeptuneLogger(

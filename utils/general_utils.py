@@ -170,12 +170,7 @@ def imshow_seqeunce(DATA, plot=True, titles=None, figsize=(50, 10), fontsize=50)
 
 
 @dataclass
-class ModelMetrics:
-    accuracy: float
-    kl_divergence: float
-    inception_score: float
-    H_yx: float
-    H_y: float
+class ModelSubMetrics:
     action_accuracy: float
     skin_accuracy: float
     pants_accuracy: float
@@ -183,11 +178,20 @@ class ModelMetrics:
     hair_accuracy: float
 
 
+@dataclass
+class ModelMetrics:
+    accuracy: float
+    kl_divergence: float
+    inception_score: float
+    H_yx: float
+    H_y: float
+
+
 def calculate_metrics(model: KoopmanVAE,
                       classifier: nn.Module,
                       val_loader: DataLoader,
                       fixed: str = "content",
-                      should_print: bool = False) -> ModelMetrics:
+                      should_print: bool = False) -> tuple[ModelMetrics, ModelSubMetrics]:
     e_values_action, e_values_skin, e_values_pant, e_values_top, e_values_hair = [], [], [], [], []
     mean_acc0, mean_acc1, mean_acc2, mean_acc3, mean_acc4 = 0, 0, 0, 0, 0
     mean_acc0_sample, mean_acc1_sample, mean_acc2_sample, mean_acc3_sample, mean_acc4_sample = 0, 0, 0, 0, 0
@@ -273,6 +277,6 @@ def calculate_metrics(model: KoopmanVAE,
     if should_print:
         print('acc: {:.2f}%, kl: {:.4f}, IS: {:.4f}, H_yx: {:.4f}, H_y: {:.4f}'.format(acc * 100, kl, IS, H_yx, H_y))
 
-    return ModelMetrics(accuracy=acc, kl_divergence=kl, inception_score=IS, H_yx=H_yx, H_y=H_y,
-                        action_accuracy=action_acc, skin_accuracy=skin_acc, pants_accuracy=pant_acc,
-                        top_accuracy=top_acc, hair_accuracy=hair_acc)
+    return ModelMetrics(accuracy=acc, kl_divergence=kl, inception_score=IS, H_yx=H_yx, H_y=H_y), \
+           ModelSubMetrics(action_accuracy=action_acc, skin_accuracy=skin_acc, pants_accuracy=pant_acc,
+                           top_accuracy=top_acc, hair_accuracy=hair_acc)

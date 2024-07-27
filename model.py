@@ -1,5 +1,5 @@
 import argparse
-
+from dataclasses import asdict
 import torch
 import torch.nn as nn
 import numpy as np
@@ -9,6 +9,7 @@ from utils.general_utils import reorder, t_to_np, calculate_metrics
 from utils.koopman_utils import get_unique_num, static_dynamic_split, get_sorted_indices
 from datamodule.sprite_datamodule import create_dataloader
 from dataloader.sprite import Sprite
+from loss import ModelLoss
 
 
 class LinearUnit(nn.Module):
@@ -366,64 +367,61 @@ class KoopmanVAE(L.LightningModule):
 
         return [optimizer], [scheduler]
 
-    def log_losses(self, loss, losses, val=False):
-        # Unpack the losses.
-        reconstruction_loss, kld_z, x_pred_loss, z_pred_loss, spectral_loss = losses
+    def log_dataclass(self, dataclass, key_prefix="", val=False, on_epoch=None):
+        # Set the name of the directory to log to.
+        directory = 'val' if val else 'train'
 
-        # Set the name of the mode.
-        mode = 'val' if val else 'train'
+        # Get the data in the form of a dictionary.
+        data_dict = asdict(dataclass)
 
-        # Log the losses
-        self.log_dict({
-            f'{mode}/sum_loss_weighted': loss,
-            f'{mode}/reconstruction_loss': reconstruction_loss,
-            f'{mode}/kld_z': kld_z,
-            f'{mode}/x_pred_loss': x_pred_loss,
-            f'{mode}/z_pred_loss': z_pred_loss,
-            f'{mode}/spectral_loss': spectral_loss
-        })
+        # Add the prefix to each of the dict keys.
+        data_dict = {f"{directory}/{key_prefix}{key}": value for key, value in data_dict.items()}
+
+        # Log the dictionary.
+        self.log_dict(data_dict, on_epoch=on_epoch)
 
     def training_step(self, batch, batch_idx):
         # Get the data of the batch and reorder the images.
-        x, label_A, label_D = reorder(batch['images']), batch['A_label'][:, 0], batch['D_label'][:, 0]
-
-        # Pass the data through the model.
-        outputs = self(x)
-
-        # Calculate the losses.
-        loss, losses = self.loss(x, outputs, self.batch_size)
-
-        # Calculate the metrics.
-        step_dataloader = create_dataloader(Sprite(x, label_A, label_D), self.batch_size, is_train=False)
-        fixed_content_metrics = calculate_metrics(self, self.classifier, step_dataloader,fixed="content")
-        fixed_action_metrics = calculate_metrics(self, self.classifier, step_dataloader,fixed="action")
-
-        # Log the different losses.
-        self.log_losses(loss, losses, val=False)
-
-        # Log the metrics.
-        # TODO
-
-        # Log the epoch number.
-        self.log('epoch', self.current_epoch, on_epoch=True)
-
-        return loss
-
-    def validation_step(self, batch, batch_idx):
-        # Reorder the data dimensions as needed.
         x = reorder(batch['images'])
 
         # Pass the data through the model.
         outputs = self(x)
 
         # Calculate the losses.
-        loss, losses = self.loss(x, outputs, self.batch_size)
+        model_losses = self.loss(x, outputs, self.batch_size)
 
-        # Log the losses to Neptune.
-        self.log_losses(loss, losses, val=True)
+        # Log the different losses.
+        self.log_dataclass(model_losses, val=False)
 
-        # Log the validation for monitor.
-        self.log("val_loss", loss, on_epoch=True)
+        # Log the epoch number.
+        self.log('epoch', self.current_epoch, on_epoch=True)
+
+        return model_losses.sum_loss_weighted
+
+    def validation_step(self, batch, batch_idx):
+        # Reorder the data dimensions as needed.
+        x, label_A, label_D = reorder(batch['images']), batch['A_label'][:, 0], batch['D_label'][:, 0]
+
+        # Pass the data through the model.
+        outputs = self(x)
+
+        # Calculate the losses.
+        model_losses = self.loss(x, outputs, self.batch_size)
+
+        # Calculate the fixed content metrics.
+        step_dataloader = create_dataloader(Sprite(x, label_A, label_D), self.batch_size, is_train=False)
+        fixed_content_metrics, _ = calculate_metrics(self, self.classifier, step_dataloader, fixed="content")
+
+        # Calculate the fixed action metrics.
+        step_dataloader = create_dataloader(Sprite(x, label_A, label_D), self.batch_size, is_train=False)
+        fixed_action_metrics, _ = calculate_metrics(self, self.classifier, step_dataloader, fixed="action")
+
+        # Log the losses.
+        self.log_dataclass(model_losses, val=True)
+
+        # Log the metrics.
+        self.log_dataclass(fixed_content_metrics, key_prefix=f"fixed_content_", val=True, on_epoch=True)
+        self.log_dataclass(fixed_action_metrics, key_prefix=f"fixed_action_", val=True, on_epoch=True)
 
     def forward_fixed_element_for_classification(self, x, fixed_content, pick_type='norm', static_size=None):
         # Set the static size if it was not set.
@@ -515,7 +513,11 @@ class KoopmanVAE(L.LightningModule):
                self.z_pred_weight * z_pred_loss + \
                self.spectral_weight * spectral_loss
 
-        return loss, (reconstruction_loss, kld_z, x_pred_loss, z_pred_loss, spectral_loss)
+        return ModelLoss(sum_loss_weighted=loss,
+                         reconstruction_loss=reconstruction_loss,
+                         x_pred_loss=x_pred_loss,
+                         z_pred_loss=z_pred_loss,
+                         spectral_loss=spectral_loss)
 
     def encode_and_sample_post(self, x):
         # Encode the input.
