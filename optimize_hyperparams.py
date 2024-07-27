@@ -60,7 +60,7 @@ if __name__ == "__main__":
     # Initialize the neptune run.
     run = neptune.init_run(project="azencot-group/koopman-vae",
                            api_token="eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vYXBwLm5lcHR1bmUuYWkiLCJhcGlfdXJsIjoiaHR0cHM6Ly9hcHAubmVwdHVuZS5haSIsImFwaV9rZXkiOiJlNjg4NDkxMS04N2NhLTRkOTctYjY0My05NDY2OGU0NGJjZGMifQ==",
-                           tags=["Debug"]
+                           tags=["Optuna"]
                            )
     neptune_callback = npt_utils.NeptuneCallback(run)
 
