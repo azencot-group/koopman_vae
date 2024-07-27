@@ -109,11 +109,9 @@ def KL_divergence(P, Q, eps=1E-16):
 
 
 def t_to_np(X):
-    if isinstance(X, np.ndarray):
-        return X
-    if X.dtype in [torch.float32, torch.float64]:
-        X = X.detach().cpu().numpy()
-    return X
+    if torch.is_tensor(X):
+        return X.detach().cpu().numpy()
+    return np.asarray(X)
 
 
 def np_to_t(X, device='cuda'):
@@ -171,22 +169,18 @@ def imshow_seqeunce(DATA, plot=True, titles=None, figsize=(50, 10), fontsize=50)
         plt.show()
 
 
+from dataclasses import is_dataclass, fields
+import torch
+
 def dataclass_to_dict(instance):
     """
-    This patchy function is needed (instead of asdict) because pytorch doesn't support copy.deepcopy to its tensors.
+    Convert a dataclass instance to a dictionary, converting tensors to floats.
     """
     if not is_dataclass(instance):
         raise TypeError("Provided instance is not a dataclass")
 
-    result = {}
-    for f in fields(instance):
-        value = getattr(instance, f.name)
-        if isinstance(value, torch.Tensor):
-            result[f.name] = value.item()  # Convert tensor to float
-        else:
-            result[f.name] = value
+    return {f.name: (getattr(instance, f.name).item() if isinstance(getattr(instance, f.name), torch.Tensor) else getattr(instance, f.name)) for f in fields(instance)}
 
-    return result
 
 
 @dataclass
