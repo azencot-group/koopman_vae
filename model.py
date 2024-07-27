@@ -524,6 +524,7 @@ class KoopmanVAE(L.LightningModule):
 
         return ModelLoss(sum_loss_weighted=loss,
                          reconstruction_loss=reconstruction_loss,
+                         kl_divergence=kld_z,
                          x_pred_loss=x_pred_loss,
                          z_pred_loss=z_pred_loss,
                          spectral_loss=spectral_loss)
