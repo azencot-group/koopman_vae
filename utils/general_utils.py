@@ -1,21 +1,23 @@
+from __future__ import annotations
+
 import torch
 import torch.nn as nn
-import socket
 import os
 import sys
 import numpy as np
 import matplotlib.pyplot as plt
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, is_dataclass
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
+from typing import TYPE_CHECKING
 
 # Add the parent directory to the Python path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from model import KoopmanVAE
 from dataloader.sprite import Sprite
 
-hostname = socket.gethostname()
+if TYPE_CHECKING:
+    from model import KoopmanVAE
 
 
 # X, X, 64, 64, 3 -> # X, X, 3, 64, 64
@@ -167,6 +169,24 @@ def imshow_seqeunce(DATA, plot=True, titles=None, figsize=(50, 10), fontsize=50)
 
     if plot:
         plt.show()
+
+
+def dataclass_to_dict(instance):
+    """
+    This patchy function is needed (instead of asdict) because pytorch doesn't support copy.deepcopy to its tensors.
+    """
+    if not is_dataclass(instance):
+        raise TypeError("Provided instance is not a dataclass")
+
+    result = {}
+    for f in fields(instance):
+        value = getattr(instance, f.name)
+        if isinstance(value, torch.Tensor):
+            result[f.name] = value.item()  # Convert tensor to float
+        else:
+            result[f.name] = value
+
+    return result
 
 
 @dataclass
