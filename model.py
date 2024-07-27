@@ -6,7 +6,7 @@ import numpy as np
 import lightning as L
 
 from classifier import classifier_Sprite_all
-from utils.general_utils import reorder, t_to_np, calculate_metrics, dataclass_to_dict
+from utils.general_utils import reorder, t_to_np, calculate_metrics, dataclass_to_dict, init_weights
 from utils.koopman_utils import get_unique_num, static_dynamic_split, get_sorted_indices
 from datamodule.sprite_datamodule import create_dataloader
 from dataloader.sprite import Sprite
@@ -359,6 +359,9 @@ class KoopmanVAE(L.LightningModule):
         self.classifier.load_state_dict(loaded_dict['state_dict'])
         self.classifier.eval()
 
+        # Init the model's weights.
+        self.apply(init_weights)
+
     def configure_optimizers(self):
         # Initialize the optimizer.
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr, betas=(0.9, 0.999))
@@ -388,7 +391,7 @@ class KoopmanVAE(L.LightningModule):
         data_dict = {f"{directory}/{key_prefix}{key}": value for key, value in data_dict.items()}
 
         # Log the dictionary.
-        self.log_dict(data_dict, on_epoch=on_epoch)
+        self.log_dict(data_dict, on_epoch=on_epoch, sync_dist=True)
 
     def training_step(self, batch, batch_idx):
         # Get the data of the batch and reorder the images.
@@ -407,7 +410,7 @@ class KoopmanVAE(L.LightningModule):
         self.log_dataclass(model_losses, val=False)
 
         # Log the epoch number.
-        self.log('epoch', self.current_epoch, on_epoch=True, on_step=False)
+        self.log('epoch', self.current_epoch, on_epoch=True, on_step=False, sync_dist=True)
 
         return model_losses.sum_loss_weighted
 

@@ -4,7 +4,6 @@ from lightning.pytorch import Trainer, seed_everything
 from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
 from lightning.pytorch.loggers import NeptuneLogger
 from datamodule.sprite_datamodule import SpriteDataModule
-from utils.general_utils import init_weights
 from model import KoopmanVAE
 
 
@@ -116,7 +115,6 @@ if __name__ == '__main__':
 
     # Create model.
     model = KoopmanVAE(args)
-    model.apply(init_weights)
 
     # Create the checkpoints.
     current_training_logs_dir = os.path.join(args.models_during_training_dir, args.model_name)
@@ -144,7 +142,8 @@ if __name__ == '__main__':
     neptune_logger = NeptuneLogger(
         api_key="eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vYXBwLm5lcHR1bmUuYWkiLCJhcGlfdXJsIjoiaHR0cHM6Ly9hcHAubmVwdHVuZS5haSIsImFwaV9rZXkiOiJlNjg4NDkxMS04N2NhLTRkOTctYjY0My05NDY2OGU0NGJjZGMifQ==",
         project="azencot-group/koopman-vae",
-        log_model_checkpoints=False)
+        log_model_checkpoints=False,
+        tags=["full_train"])
     neptune_logger.log_hyperparams(args)
 
     # Train the model.
@@ -156,6 +155,3 @@ if __name__ == '__main__':
                       logger=neptune_logger,
                       devices=1)
     trainer.fit(model, data_module, ckpt_path=checkpoint_to_resume)
-
-    # Close the logger.
-    neptune_logger.experiment.stop()
