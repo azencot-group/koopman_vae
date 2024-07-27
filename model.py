@@ -5,7 +5,8 @@ import torch.nn as nn
 import numpy as np
 import lightning as L
 
-from utils.general_utils import reorder, t_to_np, calculate_metrics
+from classifier import classifier_Sprite_all
+from utils.general_utils import reorder, t_to_np, calculate_metrics, dataclass_to_dict
 from utils.koopman_utils import get_unique_num, static_dynamic_split, get_sorted_indices
 from datamodule.sprite_datamodule import create_dataloader
 from dataloader.sprite import Sprite
@@ -349,6 +350,12 @@ class KoopmanVAE(L.LightningModule):
         self.lr = args.lr
         self.batch_size = args.batch_size
 
+        # The classifier.
+        self.classifier = classifier_Sprite_all(args)
+        loaded_dict = torch.load(args.classifier_path)
+        self.classifier.load_state_dict(loaded_dict['state_dict'])
+        self.classifier.eval()
+
     def configure_optimizers(self):
         # Initialize the optimizer.
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr, betas=(0.9, 0.999))
@@ -372,7 +379,7 @@ class KoopmanVAE(L.LightningModule):
         directory = 'val' if val else 'train'
 
         # Get the data in the form of a dictionary.
-        data_dict = asdict(dataclass)
+        data_dict = dataclass_to_dict(dataclass)
 
         # Add the prefix to each of the dict keys.
         data_dict = {f"{directory}/{key_prefix}{key}": value for key, value in data_dict.items()}
@@ -399,8 +406,14 @@ class KoopmanVAE(L.LightningModule):
         return model_losses.sum_loss_weighted
 
     def validation_step(self, batch, batch_idx):
-        # Reorder the data dimensions as needed.
-        x, label_A, label_D = reorder(batch['images']), batch['A_label'][:, 0], batch['D_label'][:, 0]
+        # Receive the data and make it fit to dataloader.
+        x, label_A, label_D = batch['images'], batch['A_label'][:, 0], batch['D_label'][:, 0]
+        x_dataloader = t_to_np(x)
+        A_dataloader = t_to_np(label_A)[:, np.newaxis, :, :]
+        D_dataloader = t_to_np(label_D)[:, np.newaxis, :]
+
+        # Reorder the received x.
+        x = reorder(x)
 
         # Pass the data through the model.
         outputs = self(x)
@@ -409,11 +422,13 @@ class KoopmanVAE(L.LightningModule):
         model_losses = self.loss(x, outputs, self.batch_size)
 
         # Calculate the fixed content metrics.
-        step_dataloader = create_dataloader(Sprite(x, label_A, label_D), self.batch_size, is_train=False)
+        step_dataloader = create_dataloader(Sprite(x_dataloader, A_dataloader, D_dataloader), self.batch_size,
+                                            is_train=False)
         fixed_content_metrics, _ = calculate_metrics(self, self.classifier, step_dataloader, fixed="content")
 
         # Calculate the fixed action metrics.
-        step_dataloader = create_dataloader(Sprite(x, label_A, label_D), self.batch_size, is_train=False)
+        step_dataloader = create_dataloader(Sprite(x_dataloader, A_dataloader, D_dataloader), self.batch_size,
+                                            is_train=False)
         fixed_action_metrics, _ = calculate_metrics(self, self.classifier, step_dataloader, fixed="action")
 
         # Log the losses.
