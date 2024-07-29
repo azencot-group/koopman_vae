@@ -353,16 +353,22 @@ class KoopmanVAE(L.LightningModule):
         self.lr = args.lr
         self.batch_size = args.batch_size
 
-        # The classifier.
+        # The classifier. It is "excluded" from the model since we don't want to learn it.
         self.classifier = classifier_Sprite_all(args)
         loaded_dict = torch.load(args.classifier_path)
         self.classifier.load_state_dict(loaded_dict['state_dict'])
-        self.classifier.eval()
-        for param in self.classifier.parameters():
-            param.requires_grad = False
+        self.exclude_classifier_from_model()
 
         # Init the model's weights.
         self.apply(init_weights)
+
+    def exclude_classifier_from_model(self):
+        # Insert it to evaluation mode.
+        self.classifier.eval()
+
+        # Mark that its parameters don't need gradient.
+        for param in self.classifier.parameters():
+            param.requires_grad = False
 
     def configure_optimizers(self):
         # Initialize the optimizer.
@@ -442,14 +448,6 @@ class KoopmanVAE(L.LightningModule):
 
         # Log the metrics.
         self.log_dataclass(fixed_content_metrics, key_prefix=f"fixed_content_", val=True, on_epoch=True)
-
-    def on_after_backward(self) -> None:
-        print("on_after_backward enter")
-        for name, p in self.named_parameters():
-            if p.grad is None:
-                print(name)
-        print("on_after_backward exit")
-
 
     def forward_fixed_element_for_classification(self, x, fixed_content, pick_type='norm', static_size=None):
         # Set the static size if it was not set.
