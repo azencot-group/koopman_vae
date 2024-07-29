@@ -153,5 +153,5 @@ if __name__ == '__main__':
                       accelerator='gpu',
                       callbacks=[checkpoint_every_n, checkpoint_best_models, early_stop],
                       logger=neptune_logger,
-                      devices=1)
+                      devices=-1)
     trainer.fit(model, data_module, ckpt_path=checkpoint_to_resume)
