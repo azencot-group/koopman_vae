@@ -151,6 +151,7 @@ if __name__ == '__main__':
     trainer = Trainer(max_epochs=args.epochs,
                       check_val_every_n_epoch=args.evl_interval,
                       accelerator='gpu',
+                      strategy='ddp',
                       callbacks=[checkpoint_every_n, checkpoint_best_models, early_stop],
                       logger=neptune_logger,
                       devices=-1)
