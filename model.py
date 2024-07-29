@@ -358,6 +358,8 @@ class KoopmanVAE(L.LightningModule):
         loaded_dict = torch.load(args.classifier_path)
         self.classifier.load_state_dict(loaded_dict['state_dict'])
         self.classifier.eval()
+        for param in self.classifier.parameters():
+            param.requires_grad = False
 
         # Init the model's weights.
         self.apply(init_weights)
@@ -440,6 +442,14 @@ class KoopmanVAE(L.LightningModule):
 
         # Log the metrics.
         self.log_dataclass(fixed_content_metrics, key_prefix=f"fixed_content_", val=True, on_epoch=True)
+
+    def on_after_backward(self) -> None:
+        print("on_after_backward enter")
+        for name, p in self.named_parameters():
+            if p.grad is None:
+                print(name)
+        print("on_after_backward exit")
+
 
     def forward_fixed_element_for_classification(self, x, fixed_content, pick_type='norm', static_size=None):
         # Set the static size if it was not set.
