@@ -1,7 +1,5 @@
 import os
 import argparse
-import torch
-import torch.distributed as dist
 from lightning.pytorch import Trainer, seed_everything
 from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
 from lightning.pytorch.loggers import NeptuneLogger
@@ -114,11 +112,6 @@ if __name__ == '__main__':
  \
     # Set seeds to all the randoms.
     seed_everything(args.seed)
-
-    # Initialize distributed training if the world size is greater than 1
-    if 'WORLD_SIZE' in os.environ and int(os.environ['WORLD_SIZE']) > 1:
-        dist.init_process_group(backend='nccl')
-        torch.cuda.set_device(int(os.environ['LOCAL_RANK']))
 
     # Create model.
     model = KoopmanVAE(args)
