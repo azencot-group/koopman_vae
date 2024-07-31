@@ -53,10 +53,22 @@ def objective(args: argparse.Namespace, trial: Trial) -> float:
     return trainer.callback_metrics["val/fixed_content_accuracy"].item()
 
 
-if __name__ == "__main__":
-    # Get the name of each of the processes.
-    rank = int(os.environ["GLOBAL_RANK"])
+class NeptuneSingleton:
+    def __init__(self):
+        self._run_instance = None
 
+    @property
+    def get_run(self) -> neptune.Run:
+        if self._run_instance is None:
+            self._run_instance = neptune.init_run(project="azencot-group/koopman-vae",
+                                                  api_token="eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vYXBwLm5lcHR1bmUuYWkiLCJhcGlfdXJsIjoiaHR0cHM6Ly9hcHAubmVwdHVuZS5haSIsImFwaV9rZXkiOiJlNjg4NDkxMS04N2NhLTRkOTctYjY0My05NDY2OGU0NGJjZGMifQ==",
+                                                  tags=["Optuna"]
+                                                  )
+
+        return self._run_instance
+
+
+if __name__ == "__main__":
     # Define the different arguments and parser them.
     parser = define_args()
     args = parser.parse_args()
@@ -64,15 +76,9 @@ if __name__ == "__main__":
     # Set the pruner.
     pruner = optuna.pruners.HyperbandPruner() if args.pruning else optuna.pruners.NopPruner()
 
-    # Initialize the neptune run only for the main process.
-    if rank == 0:
-        run = neptune.init_run(project="azencot-group/koopman-vae",
-                               api_token="eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vYXBwLm5lcHR1bmUuYWkiLCJhcGlfdXJsIjoiaHR0cHM6Ly9hcHAubmVwdHVuZS5haSIsImFwaV9rZXkiOiJlNjg4NDkxMS04N2NhLTRkOTctYjY0My05NDY2OGU0NGJjZGMifQ==",
-                               tags=["Optuna"]
-                               )
-        neptune_callback = npt_utils.NeptuneCallback(run)
-    else:
-        neptune_callback = None
+    # Initialize the neptune run.
+    run = NeptuneSingleton().get_run
+    neptune_callback = npt_utils.NeptuneCallback(run)
 
     # Set the study to maximize the accuracy with the pruner.
     study = optuna.create_study(direction="maximize", pruner=pruner)
