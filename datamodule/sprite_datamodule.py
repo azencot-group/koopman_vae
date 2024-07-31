@@ -12,7 +12,7 @@ from utils.general_utils import load_dataset
 
 def create_dataloader(data, batch_size, is_train=True):
     return DataLoader(data,
-                      num_workers=4*torch.cuda.device_count(),
+                      num_workers=4,
                       batch_size=batch_size,
                       shuffle=is_train,
                       drop_last=True,

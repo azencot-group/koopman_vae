@@ -20,7 +20,7 @@
 #SBATCH --gpus-per-node=2	 			# This is relevant if you have more than 1 node.
 #SBATCH --ntasks-per-node=2			# This should match Trainer(devices=...)
 #SBATCH --mem=60G				### amount of RAM memory, allocating more than 60G requires IT team's permission
-#SBATCH --cpus-per-task=4			### number of CPU cores, allocating more than 10G requires IT team's permission
+##SBATCH --cpus-per-task=4			### number of CPU cores, allocating more than 10G requires IT team's permission
 
 ##SBATCH --exclude=dt-1080-01,ise-1080-04,ise-1080-01,ise-1080-05,ise-1080-03,ise-1080-02,cs-1080-04,cs-1080-05,cs-1080-01,cs-1080-02,cs-1080-03,dt-gpu-02,dt-gpu-07,cs-gpu-01
 
