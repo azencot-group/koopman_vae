@@ -353,14 +353,22 @@ class KoopmanVAE(L.LightningModule):
         self.lr = args.lr
         self.batch_size = args.batch_size
 
-        # The classifier.
+        # The classifier. It is "excluded" from the model since we don't want to learn it.
         self.classifier = classifier_Sprite_all(args)
         loaded_dict = torch.load(args.classifier_path)
         self.classifier.load_state_dict(loaded_dict['state_dict'])
-        self.classifier.eval()
+        self.exclude_classifier_from_model()
 
         # Init the model's weights.
         self.apply(init_weights)
+
+    def exclude_classifier_from_model(self):
+        # Insert it to evaluation mode.
+        self.classifier.eval()
+
+        # Mark that its parameters don't need gradient.
+        for param in self.classifier.parameters():
+            param.requires_grad = False
 
     def configure_optimizers(self):
         # Initialize the optimizer.
@@ -380,7 +388,7 @@ class KoopmanVAE(L.LightningModule):
 
         return [optimizer], [scheduler]
 
-    def log_dataclass(self, dataclass, key_prefix="", val=False, on_epoch=None):
+    def log_dataclass(self, dataclass, key_prefix="", val=False, on_epoch=None, on_step=None):
         # Set the name of the directory to log to.
         directory = 'val' if val else 'train'
 
@@ -391,7 +399,7 @@ class KoopmanVAE(L.LightningModule):
         data_dict = {f"{directory}/{key_prefix}{key}": value for key, value in data_dict.items()}
 
         # Log the dictionary.
-        self.log_dict(data_dict, on_epoch=on_epoch, sync_dist=True)
+        self.log_dict(data_dict, on_epoch=on_epoch, on_step=on_step, sync_dist=True)
 
     def training_step(self, batch, batch_idx):
         # Get the data of the batch and reorder the images.
@@ -407,7 +415,7 @@ class KoopmanVAE(L.LightningModule):
         model_losses = self.loss(x, outputs, self.batch_size)
 
         # Log the different losses.
-        self.log_dataclass(model_losses, val=False)
+        self.log_dataclass(model_losses, val=False, on_epoch=True, on_step=False)
 
         # Log the epoch number.
         self.log('epoch', self.current_epoch, on_epoch=True, on_step=False, sync_dist=True)
@@ -436,10 +444,10 @@ class KoopmanVAE(L.LightningModule):
         fixed_content_metrics, _ = calculate_metrics(self, self.classifier, step_dataloader, fixed="content")
 
         # Log the losses.
-        self.log_dataclass(model_losses, val=True)
+        self.log_dataclass(model_losses, val=True, on_epoch=True, on_step=False)
 
         # Log the metrics.
-        self.log_dataclass(fixed_content_metrics, key_prefix=f"fixed_content_", val=True, on_epoch=True)
+        self.log_dataclass(fixed_content_metrics, key_prefix=f"fixed_content_", val=True, on_epoch=True, on_step=False)
 
     def forward_fixed_element_for_classification(self, x, fixed_content, pick_type='norm', static_size=None):
         # Set the static size if it was not set.

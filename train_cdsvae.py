@@ -151,7 +151,9 @@ if __name__ == '__main__':
     trainer = Trainer(max_epochs=args.epochs,
                       check_val_every_n_epoch=args.evl_interval,
                       accelerator='gpu',
+                      strategy='ddp',
                       callbacks=[checkpoint_every_n, checkpoint_best_models, early_stop],
                       logger=neptune_logger,
-                      devices=1)
+                      devices=-1,
+                      num_nodes=1)
     trainer.fit(model, data_module, ckpt_path=checkpoint_to_resume)

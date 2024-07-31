@@ -1,4 +1,5 @@
 import argparse
+
 import optuna
 from functools import partial
 from optuna.integration import PyTorchLightningPruningCallback
@@ -43,7 +44,8 @@ def objective(args: argparse.Namespace, trial: Trial) -> float:
                       check_val_every_n_epoch=args.evl_interval,
                       accelerator='gpu',
                       callbacks=[PyTorchLightningPruningCallback(trial, monitor="val/fixed_content_accuracy")],
-                      devices=-1)
+                      devices=1,
+                      num_nodes=1)
     trainer.fit(model, data_module)
 
     return trainer.callback_metrics["val/fixed_content_accuracy"].item()
@@ -70,9 +72,3 @@ if __name__ == "__main__":
     # Optimize the objective (with a little trick in order to pass args to it.
     objective = partial(objective, args)
     study.optimize(objective, n_trials=args.n_trials, callbacks=[neptune_callback])
-
-    # Save the best params.
-    run["best_params"] = study.best_params
-
-    # Stop the run.
-    run.stop()
