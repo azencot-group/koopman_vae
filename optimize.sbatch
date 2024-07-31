@@ -6,8 +6,8 @@
 ### To ignore, just add another # - like so: ##SBATCH
 ###############################################################################################
 
-#SBATCH --partition main			### specify partition name where to run a job. main: all nodes; gtx1080: 1080 gpu card nodes; rtx2080: 2080 nodes; teslap100: p100 nodes; titanrtx: titan nodes
-#SBATCH --qos normal
+#SBATCH --partition rtx6000			### specify partition name where to run a job. main: all nodes; gtx1080: 1080 gpu card nodes; rtx2080: 2080 nodes; teslap100: p100 nodes; titanrtx: titan nodes
+#SBATCH --qos azencot
 #SBATCH --time 7-00:00:00			### limit the time of job running. Make sure it is not greater than the partition time limit!! Format: D-H:MM:SS
 #SBATCH --job-name hyperparameters_optimization	### name of the job
 #SBATCH --output train-%J.out			### output log for running job - %J for job number
@@ -35,5 +35,5 @@ export CUDA_VISIBLE_DEVICES=$(echo $SLURM_JOB_GPUS | tr ',' ' ')
 unset LOCAL_RANK		# Sometimes this emvironment variable causes lightning not to detect GPUs.
 export NCCL_P2P_DISABLE=1	# This solves the problem in lightning on 4090.
 
-srun python /cs/cs_groups/azencot_group/inon/koopman_vae/optimize_hyperparams.py --epochs 3 --lr 0.001 --batch_size 512 --evl_interval 2 --n_trials 4
+srun python /cs/cs_groups/azencot_group/inon/koopman_vae/optimize_hyperparams.py --epochs 100 --lr 0.001 --batch_size 512 --evl_interval 10 --n_trials 400 --no-prior-sampling
 
