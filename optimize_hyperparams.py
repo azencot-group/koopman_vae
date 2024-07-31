@@ -1,5 +1,5 @@
 import argparse
-
+import torch
 import optuna
 from functools import partial
 from optuna.integration import PyTorchLightningPruningCallback
@@ -65,6 +65,9 @@ if __name__ == "__main__":
                            tags=["Optuna"]
                            )
     neptune_callback = npt_utils.NeptuneCallback(run)
+
+    # Set the matmul precision in order to save time.
+    torch.set_float32_matmul_precision("high")
 
     # Set the study to maximize the accuracy with the pruner.
     study = optuna.create_study(direction="maximize", pruner=pruner)
