@@ -1,5 +1,6 @@
 import os
 import argparse
+import torch
 from lightning.pytorch import Trainer, seed_everything
 from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
 from lightning.pytorch.loggers import NeptuneLogger
@@ -115,6 +116,7 @@ if __name__ == '__main__':
 
     # Create model.
     model = KoopmanVAE(args)
+    torch.set_float32_matmul_precision("high")
 
     # Create the checkpoints.
     current_training_logs_dir = os.path.join(args.models_during_training_dir, args.model_name)
