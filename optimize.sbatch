@@ -13,9 +13,9 @@
 #SBATCH --output train-%J.out			### output log for running job - %J for job number
 #SBATCH --mail-user=gdolim@post.bgu.ac.il    ### User's email for sending job status
 #SBATCH --mail-type=FAIL			### conditions for sending the email. ALL,BEGIN,END,FAIL, REQUEU, NONE
-#SBATCH --gpus=rtx_4090:2			# 3 GPUs
+#SBATCH --gpus=rtx_6000:1			# 3 GPUs
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=2
+#SBATCH --ntasks-per-node=1
 #SBATCH --mem=60G				### amount of RAM memory, allocating more than 60G requires IT team's permission
 #SBATCH --cpus-per-task=4			### number of CPU cores, allocating more than 10G requires IT team's permission
 

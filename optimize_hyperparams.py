@@ -1,5 +1,4 @@
 import argparse
-import os
 
 import optuna
 from functools import partial
@@ -44,28 +43,12 @@ def objective(args: argparse.Namespace, trial: Trial) -> float:
     trainer = Trainer(max_epochs=args.epochs,
                       check_val_every_n_epoch=args.evl_interval,
                       accelerator='gpu',
-                      strategy='ddp',
                       callbacks=[PyTorchLightningPruningCallback(trial, monitor="val/fixed_content_accuracy")],
-                      devices=-1,
+                      devices=1,
                       num_nodes=1)
     trainer.fit(model, data_module)
 
     return trainer.callback_metrics["val/fixed_content_accuracy"].item()
-
-
-class NeptuneSingleton:
-    def __init__(self):
-        self._run_instance = None
-
-    @property
-    def get_run(self) -> neptune.Run:
-        if self._run_instance is None:
-            self._run_instance = neptune.init_run(project="azencot-group/koopman-vae",
-                                                  api_token="eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vYXBwLm5lcHR1bmUuYWkiLCJhcGlfdXJsIjoiaHR0cHM6Ly9hcHAubmVwdHVuZS5haSIsImFwaV9rZXkiOiJlNjg4NDkxMS04N2NhLTRkOTctYjY0My05NDY2OGU0NGJjZGMifQ==",
-                                                  tags=["Optuna"]
-                                                  )
-
-        return self._run_instance
 
 
 if __name__ == "__main__":
@@ -77,7 +60,10 @@ if __name__ == "__main__":
     pruner = optuna.pruners.HyperbandPruner() if args.pruning else optuna.pruners.NopPruner()
 
     # Initialize the neptune run.
-    run = NeptuneSingleton().get_run
+    run = neptune.init_run(project="azencot-group/koopman-vae",
+                           api_token="eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vYXBwLm5lcHR1bmUuYWkiLCJhcGlfdXJsIjoiaHR0cHM6Ly9hcHAubmVwdHVuZS5haSIsImFwaV9rZXkiOiJlNjg4NDkxMS04N2NhLTRkOTctYjY0My05NDY2OGU0NGJjZGMifQ==",
+                           tags=["Optuna"]
+                           )
     neptune_callback = npt_utils.NeptuneCallback(run)
 
     # Set the study to maximize the accuracy with the pruner.
