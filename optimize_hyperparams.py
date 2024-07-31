@@ -1,4 +1,6 @@
 import argparse
+import os
+
 import optuna
 from functools import partial
 from optuna.integration import PyTorchLightningPruningCallback
@@ -52,6 +54,9 @@ def objective(args: argparse.Namespace, trial: Trial) -> float:
 
 
 if __name__ == "__main__":
+    # Get the name of each of the processes.
+    rank = int(os.environ["GLOBAL_RANK"])
+
     # Define the different arguments and parser them.
     parser = define_args()
     args = parser.parse_args()
@@ -59,12 +64,15 @@ if __name__ == "__main__":
     # Set the pruner.
     pruner = optuna.pruners.HyperbandPruner() if args.pruning else optuna.pruners.NopPruner()
 
-    # Initialize the neptune run.
-    run = neptune.init_run(project="azencot-group/koopman-vae",
-                           api_token="eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vYXBwLm5lcHR1bmUuYWkiLCJhcGlfdXJsIjoiaHR0cHM6Ly9hcHAubmVwdHVuZS5haSIsImFwaV9rZXkiOiJlNjg4NDkxMS04N2NhLTRkOTctYjY0My05NDY2OGU0NGJjZGMifQ==",
-                           tags=["Optuna"]
-                           )
-    neptune_callback = npt_utils.NeptuneCallback(run)
+    # Initialize the neptune run only for the main process.
+    if rank == 0:
+        run = neptune.init_run(project="azencot-group/koopman-vae",
+                               api_token="eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vYXBwLm5lcHR1bmUuYWkiLCJhcGlfdXJsIjoiaHR0cHM6Ly9hcHAubmVwdHVuZS5haSIsImFwaV9rZXkiOiJlNjg4NDkxMS04N2NhLTRkOTctYjY0My05NDY2OGU0NGJjZGMifQ==",
+                               tags=["Optuna"]
+                               )
+        neptune_callback = npt_utils.NeptuneCallback(run)
+    else:
+        neptune_callback = None
 
     # Set the study to maximize the accuracy with the pruner.
     study = optuna.create_study(direction="maximize", pruner=pruner)
@@ -72,9 +80,3 @@ if __name__ == "__main__":
     # Optimize the objective (with a little trick in order to pass args to it.
     objective = partial(objective, args)
     study.optimize(objective, n_trials=args.n_trials, callbacks=[neptune_callback])
-
-    # Save the best params.
-    run["best_params"] = study.best_params
-
-    # Stop the run.
-    run.stop()
