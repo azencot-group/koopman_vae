@@ -81,9 +81,7 @@ def define_args():
     parser.add_argument('--classifier_path', type=str,
                         default=f'{project_working_directory}/judges/Sprite/sprite_judge.tar',
                         help='Path to the classifier weights.')
-    parser.add_argument('--prior_sampling', default=True, action=argparse.BooleanOptionalAction,
-                        help='Whether the evaluation is being done by '
-                             'prior sampling or SKD sampling.')
+    parser.add_argument('--prior-sampling', default=True, action=argparse.BooleanOptionalAction)
 
     return parser
 
