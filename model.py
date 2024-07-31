@@ -519,16 +519,16 @@ class KoopmanVAE(L.LightningModule):
 
         # ----- X.shape: b x t x c x w x h ------
         # Get the posterior.
-        Z = self.encode_and_sample_post(X)
+        z_mean, z_logvar, z_post = self.encode_and_sample_post(X)
 
         # Pass the posterior through the Koopman module and the Dropout layer.
-        Z2, Ct = self.koopman_layer(Z)
+        Z2, Ct = self.koopman_layer(z_post)
 
         # swap a single pair in batch
         bsz, fsz = X.shape[0:2]
 
         # swap contents of samples in indices
-        Z = t_to_np(Z.reshape(bsz, fsz, -1))
+        Z = t_to_np(z_post.reshape(bsz, fsz, -1))
         C = t_to_np(Ct)
 
         # eig
