@@ -1,5 +1,5 @@
 import argparse
-from dataclasses import asdict
+import copy
 import torch
 import torch.nn as nn
 import numpy as np
@@ -359,6 +359,9 @@ class KoopmanVAE(L.LightningModule):
         self.classifier.load_state_dict(loaded_dict['state_dict'])
         self.exclude_classifier_from_model()
 
+        # Whether the evaluation is by prior sampling.
+        self.prior_sampling = args.prior_sampling
+
         # Init the model's weights.
         self.apply(init_weights)
 
@@ -449,7 +452,8 @@ class KoopmanVAE(L.LightningModule):
         # Log the metrics.
         self.log_dataclass(fixed_content_metrics, key_prefix=f"fixed_content_", val=True, on_epoch=True, on_step=False)
 
-    def forward_fixed_element_for_classification(self, x, fixed_content, pick_type='norm', static_size=None):
+    def forward_fixed_element_for_classification_prior_sampled(self, x, fixed_content, pick_type='norm',
+                                                               static_size=None):
         # Set the static size if it was not set.
         if static_size is None:
             static_size = self.koopman_layer.static_size
@@ -507,11 +511,92 @@ class KoopmanVAE(L.LightningModule):
 
         return recon_x_sample, recon_x
 
+    def forward_fixed_element_for_classification_skd_sampled(self, X, fixed_content, pick_type='real', duplicate=False,
+                                                             static_size=None):
+        # Set the static size if it was not set.
+        if static_size is None:
+            static_size = self.koopman_layer.static_size
+
+        # ----- X.shape: b x t x c x w x h ------
+        # Get the posterior.
+        z_mean, z_logvar, z_post = self.encode_and_sample_post(X)
+
+        # Pass the posterior through the Koopman module and the Dropout layer.
+        Z2, Ct = self.koopman_layer(z_post)
+
+        # swap a single pair in batch
+        bsz, fsz = X.shape[0:2]
+
+        # swap contents of samples in indices
+        Z = t_to_np(z_post.reshape(bsz, fsz, -1))
+        C = t_to_np(Ct)
+
+        # eig
+        D, V = np.linalg.eig(C)
+        U = np.linalg.inv(V)
+
+        # static/dynamic split
+        I = get_sorted_indices(D, pick_type)
+        Id, Is = static_dynamic_split(D, I, pick_type, self.koopman_layer.static_size)
+
+        convex_size = 2
+
+        Js = [np.random.permutation(bsz) for _ in range(convex_size)]  # convex_size permutations
+        # J = np.random.permutation(bsz)              # bsz
+        # J2 = np.random.permutation(bsz)
+
+        A = np.random.rand(bsz, convex_size)  # bsz x 2
+        A = A / np.sum(A, axis=1)[:, None]
+
+        Zp = Z @ V
+
+        # prev code
+        # Zp1 = [a * z for a, z in zip(A[:, 0], Zp[J2])]
+        # Zp2 = [a * z for a, z in zip(A[:, 1], Zp[J])]
+
+        # bsz x time x feats
+        # Zpc = np.array(Zp1) + np.array(Zp2)
+
+        # Edit
+
+        import functools
+        Zpi = [np.array([a * z for a, z in zip(A[:, c], Zp[j])]) for c, j in enumerate(Js)]
+        Zpc = functools.reduce(lambda a, b: a + b, Zpi)
+
+        Zp2 = copy.deepcopy(Zp)
+
+        if fixed_content:
+            # Swap the dynamic info.
+            Zp2[:, :, Id] = Zpc[:, :, Id]
+
+        else:
+            # Swap the static info.
+            if duplicate:
+                Zp2[:, :, Is] = np.repeat(np.expand_dims(np.mean(Zpc[:, :, Is], axis=1), axis=1), 8, axis=1)
+            else:
+                Zp2[:, :, Is] = Zpc[:, :, Is]
+
+        Z2 = np.real(Zp2 @ U)
+
+        X2_dec = self.decoder(torch.from_numpy(Z2).to(self.device))
+        X_dec = self.decoder(torch.from_numpy(Z).to(self.device))
+
+        return X2_dec, X_dec
+
     def forward_fixed_content_for_classification(self, x, static_size=None):
-        return self.forward_fixed_element_for_classification(x, fixed_content=True, static_size=static_size)
+        if self.prior_sampling:
+            return self.forward_fixed_element_for_classification_prior_sampled(x, fixed_content=True,
+                                                                               static_size=static_size)
+
+        return self.forward_fixed_element_for_classification_skd_sampled(x, fixed_content=True, static_size=static_size)
 
     def forward_fixed_motion_for_classification(self, x, static_size=None):
-        return self.forward_fixed_element_for_classification(x, fixed_content=False, static_size=static_size)
+        if self.prior_sampling:
+            return self.forward_fixed_element_for_classification_prior_sampled(x, fixed_content=False,
+                                                                               static_size=static_size)
+
+        return self.forward_fixed_element_for_classification_skd_sampled(x, fixed_content=False,
+                                                                         static_size=static_size)
 
     def loss(self, x, outputs, batch_size):
         # Unpack the outputs.
