@@ -35,7 +35,6 @@ def objective(args: argparse.Namespace, trial: Trial) -> float:
     # Set the trial arguments into args.
     args.static_size = trial.suggest_int("static_size", 4, 11)
     args.lstm = trial.suggest_categorical("lstm", ["encoder", "both"])
-    args.weight_kl_z = trial.suggest_float("weight_kl_z", 1e-7, 1e-1, log=True)
     args.weight_x_pred = trial.suggest_float("weight_x_pred", 1e-5, 1e0, log=True)
     args.weight_z_pred = trial.suggest_float("weight_z_pred", 1e-5, 1e0, log=True)
     args.weight_spectral = trial.suggest_float("weight_spectral", 1e-5, 1e0, log=True)
