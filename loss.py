@@ -8,7 +8,6 @@ class ModelLoss:
     """
     sum_loss_weighted: Tensor
     reconstruction_loss: Tensor
-    kl_divergence: Tensor
     x_pred_loss: Tensor
     z_pred_loss: Tensor
     spectral_loss: Tensor
