@@ -100,6 +100,7 @@ if __name__ == '__main__':
 
     # Train the model.
     data_module = SpriteDataModule(args.dataset_path, args.batch_size)
+
     trainer = Trainer(max_epochs=args.epochs,
                       check_val_every_n_epoch=args.evl_interval,
                       accelerator='gpu',

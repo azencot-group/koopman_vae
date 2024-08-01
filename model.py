@@ -325,16 +325,8 @@ class KoopmanVAE(L.LightningModule):
         self.drop = torch.nn.Dropout(args.dropout)
         self.koopman_layer = KoopmanLayer(args)
 
-        # Prior of the dynamics is an LSTM
-        self.z_prior_lstm_ly1 = nn.LSTMCell(self.k_dim, args.prior_lstm_inner_size)
-        self.z_prior_lstm_ly2 = nn.LSTMCell(args.prior_lstm_inner_size, args.prior_lstm_inner_size)
-
-        self.z_prior_mean = nn.Linear(args.prior_lstm_inner_size, self.k_dim)
-        self.z_prior_logvar = nn.Linear(args.prior_lstm_inner_size, self.k_dim)
-
         # Each timestep is for each z so no reshaping and feature mixing
         self.z_mean = nn.Linear(self.encoder.output_size, self.k_dim)
-        self.z_logvar = nn.Linear(self.encoder.output_size, self.k_dim)
 
         # The loss function.
         self.loss_func = nn.MSELoss()
@@ -587,10 +579,10 @@ class KoopmanVAE(L.LightningModule):
 
         # ----- X.shape: b x t x c x w x h ------
         # Get the posterior.
-        z_mean, z_logvar, z_post = self.encode_and_sample_post(X)
+        z = self.encode_and_sample_post(X)
 
         # Pass the posterior through the Koopman module and the Dropout layer.
-        Z2, Ct = self.koopman_layer(z_post)
+        Z2, Ct = self.koopman_layer(z)
         if Ct is None:
             # Stop the training process if in the middle.
             if self.trainer is not None:
@@ -602,7 +594,7 @@ class KoopmanVAE(L.LightningModule):
         bsz, fsz = X.shape[0:2]
 
         # swap contents of samples in indices
-        Z = t_to_np(z_post.reshape(bsz, fsz, -1))
+        Z = t_to_np(z.reshape(bsz, fsz, -1))
         C = t_to_np(Ct)
 
         # eig
@@ -674,17 +666,10 @@ class KoopmanVAE(L.LightningModule):
 
     def loss(self, x, outputs, batch_size):
         # Unpack the outputs.
-        z_mean_post, z_logvar_post, z_post, z_mean_prior, z_logvar_prior, z_prior, z_post_koopman, z_post_dropout, Ct, koopman_recon_x, dropout_recon_x = outputs
+        z, z_post_koopman, z_post_dropout, Ct, koopman_recon_x, dropout_recon_x = outputs
 
         # Calculate the reconstruction loss.
         reconstruction_loss = self.loss_func(dropout_recon_x, x)
-
-        # Calculate the kld_z and normalize it by the batch size.
-        z_post_var = torch.exp(z_logvar_post)  # [128, 8, 32]
-        z_prior_var = torch.exp(z_logvar_prior)  # [128, 8, 32]
-        kld_z = 0.5 * torch.sum(z_logvar_prior - z_logvar_post +
-                                ((z_post_var + torch.pow(z_mean_post - z_mean_prior, 2)) / z_prior_var) - 1)
-        kld_z /= batch_size
 
         x_pred_loss, z_pred_loss, spectral_loss = self.koopman_layer.loss(dropout_recon_x, koopman_recon_x,
                                                                           z_post_dropout, z_post_koopman, Ct)
@@ -693,14 +678,12 @@ class KoopmanVAE(L.LightningModule):
         # The weight of the reconstruction loss is implicitly 1.
         # The rest of the weights are relative to it.
         loss = reconstruction_loss + \
-               self.kld_z_weight * kld_z + \
                self.x_pred_weight * x_pred_loss + \
                self.z_pred_weight * z_pred_loss + \
                self.spectral_weight * spectral_loss
 
         return ModelLoss(sum_loss_weighted=loss,
                          reconstruction_loss=reconstruction_loss,
-                         kl_divergence=kld_z,
                          x_pred_loss=x_pred_loss,
                          z_pred_loss=z_pred_loss,
                          spectral_loss=spectral_loss)
@@ -710,34 +693,29 @@ class KoopmanVAE(L.LightningModule):
         z = self.encoder(x)
 
         # pass to one direction rnn
-        z_mean = self.z_mean(z)
-        z_logvar = self.z_logvar(z)
-        z_post = self.reparameterize(z_mean, z_logvar, random_sampling=True)
+        z = self.z_mean(z)
 
-        return z_mean, z_logvar, z_post
+        return z
 
     def forward(self, x):
         # Get the posterior.
-        z_mean_post, z_logvar_post, z_post = self.encode_and_sample_post(x)
-
-        # Get the prior.
-        z_mean_prior, z_logvar_prior, z_prior = self.sample_z_prior_train(z_post, random_sampling=self.training)
+        z = self.encode_and_sample_post(x)
 
         # Pass the posterior through the Koopman module and the Dropout layer.
-        z_post_koopman, Ct = self.koopman_layer(z_post)
+        z_post_koopman, Ct = self.koopman_layer(z)
         if Ct is None:
             if self.trainer is not None:
                 self.trainer.should_stop = True
 
             return None
 
-        z_post_dropout = self.drop(z_post)
+        z_post_dropout = self.drop(z)
 
         # Reconstruct the data.
         koopman_recon_x = self.decoder(z_post_koopman)
         dropout_recon_x = self.decoder(z_post_dropout)
 
-        return z_mean_post, z_logvar_post, z_post, z_mean_prior, z_logvar_prior, z_prior, z_post_koopman, z_post_dropout, Ct, koopman_recon_x, dropout_recon_x
+        return z, z_post_koopman, z_post_dropout, Ct, koopman_recon_x, dropout_recon_x
 
     def encoder_frame(self, x):
         # input x is list of length Frames [batchsize, channels, size, size]
