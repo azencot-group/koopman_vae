@@ -35,5 +35,5 @@ export CUDA_VISIBLE_DEVICES=$(echo $SLURM_JOB_GPUS | tr ',' ' ')
 unset LOCAL_RANK		# Sometimes this emvironment variable causes lightning not to detect GPUs.
 export NCCL_P2P_DISABLE=1	# This solves the problem in lightning on 4090.
 
-srun python /cs/cs_groups/azencot_group/inon/koopman_vae/optimize_hyperparams.py --epochs 100 --lr 0.001 --batch_size 512 --evl_interval 10 --n_trials 400 --no-prior-sampling
+srun python /cs/cs_groups/azencot_group/inon/koopman_vae/optimize_hyperparams.py --epochs 100 --batch_size 512 --evl_interval 10 --n_trials 200 --weight_kl_z 0 --no-prior-sampling
 
