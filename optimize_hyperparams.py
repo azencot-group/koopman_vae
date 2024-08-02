@@ -48,7 +48,11 @@ def objective(args: argparse.Namespace, trial: Trial) -> float:
                       num_nodes=1)
     trainer.fit(model, data_module)
 
-    return trainer.callback_metrics["val/fixed_content_accuracy"].item()
+    try:
+        return trainer.callback_metrics["val/fixed_content_accuracy"].item()
+    except KeyError:
+        return 0
+
 
 
 if __name__ == "__main__":
