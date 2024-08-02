@@ -324,9 +324,6 @@ class KoopmanVAE(L.LightningModule):
         self.drop = torch.nn.Dropout(args.dropout)
         self.koopman_layer = KoopmanLayer(args)
 
-        # Each timestep is for each z so no reshaping and feature mixing
-        self.z_mean = nn.Linear(self.encoder.output_size, self.k_dim)
-
         # The loss function.
         self.loss_func = nn.MSELoss()
 
@@ -644,9 +641,6 @@ class KoopmanVAE(L.LightningModule):
     def encode_and_sample_post(self, x):
         # Encode the input.
         z = self.encoder(x)
-
-        # pass to one direction rnn
-        z = self.z_mean(z)
 
         return z
 
