@@ -38,7 +38,7 @@ if __name__ == '__main__':
     x = reorder(data['images']).to(model.device)
 
     # Pass the data through the model.
-    z_mean_post, z_logvar_post, z_post, z_mean_prior, z_logvar_prior, z_prior, z_post_koopman, z_post_dropout, Ct, koopman_recon_x, dropout_recon_x = model(
+    z, z_post_koopman, z_post_dropout, Ct, koopman_recon_x, dropout_recon_x = model(
         x)
 
     # visualize

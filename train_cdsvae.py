@@ -154,7 +154,7 @@ if __name__ == '__main__':
         api_key="eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vYXBwLm5lcHR1bmUuYWkiLCJhcGlfdXJsIjoiaHR0cHM6Ly9hcHAubmVwdHVuZS5haSIsImFwaV9rZXkiOiJlNjg4NDkxMS04N2NhLTRkOTctYjY0My05NDY2OGU0NGJjZGMifQ==",
         project="azencot-group/koopman-vae",
         log_model_checkpoints=False,
-        tags=["full_train"])
+        tags=["full_train", "SKD"])
     neptune_logger.log_hyperparams(args)
 
     # Train the model.
