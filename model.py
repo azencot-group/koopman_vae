@@ -8,8 +8,6 @@ import lightning as L
 from classifier import classifier_Sprite_all
 from utils.general_utils import reorder, t_to_np, calculate_metrics, dataclass_to_dict, init_weights
 from utils.koopman_utils import get_unique_num, static_dynamic_split, get_sorted_indices
-from datamodule.sprite_datamodule import create_dataloader
-from dataloader.sprite import Sprite
 from loss import ModelLoss
 
 
@@ -417,6 +415,9 @@ class KoopmanVAE(L.LightningModule):
         # Calculate the losses.
         model_losses = self.loss(x, outputs, self.batch_size)
 
+        # Gather the losses.
+        model_losses = self.gather_dataclass(model_losses, sync_grads=True)
+
         # Log the different losses.
         self.log_dataclass(model_losses, val=False, on_epoch=True, on_step=False)
 
@@ -441,12 +442,38 @@ class KoopmanVAE(L.LightningModule):
         # Log the losses.
         self.log_dataclass(model_losses, val=True, on_epoch=True, on_step=False)
 
-    def on_validation_epoch_end(self) -> None:
-        # Calculate the fixed content metrics.
-        fixed_content_metrics, _ = calculate_metrics(self, self.classifier, self.trainer.val_dataloaders, fixed="content")
+    def gather_dataclass(self, instance, sync_grads=False):
+        # Convert dataclass to dictionary
+        instance_dict = dataclass_to_dict(instance)
+
+        # Convert dictionary to tensor for gathering
+        instance_tensor = torch.tensor(list(instance_dict.values()), device=self.device, requires_grad=sync_grads)
+
+        # Gather tensors across devices
+        gathered_tensors = self.all_gather(instance_tensor, sync_grads=sync_grads)
+
+        # Convert gathered tensors back to dictionary
+        gathered_dict = {key: gathered_tensors[:, i].mean() for i, key in enumerate(instance_dict.keys())}
+
+        # Convert dictionary back to dataclass
+        return instance.__class__(**gathered_dict)
+
+    def calculate_val_metrics_and_log(self, fixed: str):
+        # Calculate the metrics.
+        metrics, _ = calculate_metrics(self, self.classifier, self.trainer.val_dataloaders, fixed=fixed)
+
+        # Gather all the metrics in a distributed run.
+        metrics = self.gather_dataclass(metrics)
 
         # Log the metrics.
-        self.log_dataclass(fixed_content_metrics, key_prefix=f"fixed_content_", val=True, on_epoch=True, on_step=False)
+        self.log_dataclass(metrics, key_prefix=f"fixed_{fixed}_", val=True, on_epoch=True, on_step=False)
+
+    def on_validation_epoch_end(self) -> None:
+        # Calculate and log the fixed content metrics.
+        self.calculate_val_metrics_and_log(fixed="content")
+
+        # Calculate and log the fixed action metrics.
+        self.calculate_val_metrics_and_log(fixed="action")
 
     def forward_fixed_element_for_classification_prior_sampled(self, x, fixed_content, pick_type='norm',
                                                                static_size=None):
