@@ -44,7 +44,7 @@ def objective(args: argparse.Namespace, trial: Trial) -> float:
                       check_val_every_n_epoch=args.evl_interval,
                       accelerator='gpu',
                       callbacks=[PyTorchLightningPruningCallback(trial, monitor="val/fixed_content_accuracy")],
-                      devices=1,
+                      devices=-1,
                       num_nodes=1)
     trainer.fit(model, data_module)
 
