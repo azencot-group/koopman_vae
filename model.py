@@ -428,9 +428,6 @@ class KoopmanVAE(L.LightningModule):
     def validation_step(self, batch, batch_idx):
         # Receive the data and make it fit to dataloader.
         x, label_A, label_D = batch['images'], batch['A_label'][:, 0], batch['D_label'][:, 0]
-        x_dataloader = t_to_np(x)
-        A_dataloader = t_to_np(label_A)[:, np.newaxis, :, :]
-        D_dataloader = t_to_np(label_D)[:, np.newaxis, :]
 
         # Reorder the received x.
         x = reorder(x)
@@ -441,13 +438,12 @@ class KoopmanVAE(L.LightningModule):
         # Calculate the losses.
         model_losses = self.loss(x, outputs, self.batch_size)
 
-        # Calculate the fixed content metrics.
-        step_dataloader = create_dataloader(Sprite(x_dataloader, A_dataloader, D_dataloader), self.batch_size,
-                                            is_train=False)
-        fixed_content_metrics, _ = calculate_metrics(self, self.classifier, step_dataloader, fixed="content")
-
         # Log the losses.
         self.log_dataclass(model_losses, val=True, on_epoch=True, on_step=False)
+
+    def on_validation_epoch_end(self) -> None:
+        # Calculate the fixed content metrics.
+        fixed_content_metrics, _ = calculate_metrics(self, self.classifier, self.trainer.val_dataloaders, fixed="content")
 
         # Log the metrics.
         self.log_dataclass(fixed_content_metrics, key_prefix=f"fixed_content_", val=True, on_epoch=True, on_step=False)
