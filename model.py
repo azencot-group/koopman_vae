@@ -457,7 +457,7 @@ class KoopmanVAE(L.LightningModule):
         gathered_tensors = self.all_gather(instance_tensor, sync_grads=is_tensors)
 
         # Convert gathered tensors back to dictionary
-        gathered_dict = {key: gathered_tensors[:, i].mean() for i, key in enumerate(instance_dict.keys())}
+        gathered_dict = {key: gathered_tensors.mean(dim=0) for i, key in enumerate(instance_dict.keys())}
 
         # Convert dictionary back to dataclass
         return instance.__class__(**gathered_dict)
