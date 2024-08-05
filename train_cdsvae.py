@@ -126,12 +126,20 @@ if __name__ == '__main__':
                                          every_n_epochs=args.save_interval,
                                          save_on_train_epoch_end=True,
                                          save_last=True)
-    checkpoint_best_models = ModelCheckpoint(dirpath=current_training_logs_dir,
-                                             filename="model-{epoch}-{val_loss:.7f}",
-                                             save_top_k=args.save_n_val_best,
-                                             monitor="val/sum_loss_weighted",
-                                             mode="min",
-                                             save_last=False)
+    checkpoint_best_fixed_content = ModelCheckpoint(dirpath=current_training_logs_dir,
+                                                    filename="model-epoch={epoch}-content_acc={val/fixed_content_accuracy:.3f}",
+                                                    auto_insert_metric_name=False,
+                                                    save_top_k=args.save_n_val_best,
+                                                    monitor="val/fixed_content_accuracy",
+                                                    mode="max",
+                                                    save_last=False)
+    checkpoint_best_fixed_action = ModelCheckpoint(dirpath=current_training_logs_dir,
+                                                   filename="model-epoch={epoch}-action_acc={val/fixed_action_accuracy:.3f}",
+                                                   auto_insert_metric_name=False,
+                                                   save_top_k=args.save_n_val_best,
+                                                   monitor="val/fixed_action_accuracy",
+                                                   mode="max",
+                                                   save_last=False)
 
     # Check whether there is a checkpoint to resume from.
     last_checkpoint_path = os.path.join(current_training_logs_dir,
@@ -155,7 +163,8 @@ if __name__ == '__main__':
                       check_val_every_n_epoch=args.evl_interval,
                       accelerator='gpu',
                       strategy='ddp',
-                      callbacks=[checkpoint_every_n, checkpoint_best_models, early_stop],
+                      callbacks=[checkpoint_every_n, checkpoint_best_fixed_content, checkpoint_best_fixed_action,
+                                 early_stop],
                       logger=neptune_logger,
                       devices=-1,
                       num_nodes=1)
