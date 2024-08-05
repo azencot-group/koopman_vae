@@ -416,7 +416,7 @@ class KoopmanVAE(L.LightningModule):
         model_losses = self.loss(x, outputs, self.batch_size)
 
         # Gather the losses.
-        model_losses = self.gather_dataclass(model_losses, sync_grads=True)
+        model_losses = self.gather_dataclass(model_losses, is_tensors=True)
 
         # Log the different losses.
         self.log_dataclass(model_losses, val=False, on_epoch=True, on_step=False)
@@ -442,15 +442,19 @@ class KoopmanVAE(L.LightningModule):
         # Log the losses.
         self.log_dataclass(model_losses, val=True, on_epoch=True, on_step=False)
 
-    def gather_dataclass(self, instance, sync_grads=False):
-        # Convert dataclass to dictionary
+    def gather_dataclass(self, instance, is_tensors=False):
+        # Convert dataclass to dictionary.
         instance_dict = dataclass_to_dict(instance)
 
-        # Convert dictionary to tensor for gathering
-        instance_tensor = torch.tensor(list(instance_dict.values()), device=self.device, requires_grad=sync_grads)
+        # Convert dictionary to tensor for gathering.
+        if is_tensors:
+            # Preserve gradients.
+            instance_tensor = torch.stack(list(instance_dict.values()))
+        else:
+            instance_tensor = torch.tensor(list(instance_dict.values()), device=self.device)
 
         # Gather tensors across devices
-        gathered_tensors = self.all_gather(instance_tensor, sync_grads=sync_grads)
+        gathered_tensors = self.all_gather(instance_tensor, sync_grads=is_tensors)
 
         # Convert gathered tensors back to dictionary
         gathered_dict = {key: gathered_tensors[:, i].mean() for i, key in enumerate(instance_dict.keys())}
@@ -463,7 +467,7 @@ class KoopmanVAE(L.LightningModule):
         metrics, _ = calculate_metrics(self, self.classifier, self.trainer.val_dataloaders, fixed=fixed)
 
         # Gather all the metrics in a distributed run.
-        metrics = self.gather_dataclass(metrics)
+        metrics = self.gather_dataclass(metrics, is_tensors=False)
 
         # Log the metrics.
         self.log_dataclass(metrics, key_prefix=f"fixed_{fixed}_", val=True, on_epoch=True, on_step=False)
