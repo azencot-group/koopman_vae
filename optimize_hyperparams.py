@@ -54,6 +54,14 @@ def objective(args: argparse.Namespace, trial: Trial) -> float:
         return 0
 
 
+def delete_study(study_name: str, storage_name):
+    try:
+        optuna.load_study(study_name=study_name, storage=storage_name)
+        optuna.delete_study(study_name=study_name, storage=storage_name)
+
+    except KeyError:
+        return
+
 
 if __name__ == "__main__":
     # Define the different arguments and parser them.
@@ -73,8 +81,16 @@ if __name__ == "__main__":
     # Set the matmul precision in order to save time.
     torch.set_float32_matmul_precision("high")
 
+    # Create the study and storage name.
+    study_name = "example-study"  # Unique identifier of the study.
+    storage_name = "sqlite:///{}.db".format(study_name)
+
+    # Delete existing studies and storages with the same name.
+    delete_study(study_name, storage_name)
+
     # Set the study to maximize the accuracy with the pruner.
-    study = optuna.create_study(direction="maximize", pruner=pruner)
+    study = optuna.create_study(direction="maximize", pruner=pruner, study_name=study_name, storage=storage_name)
+    # study = optuna.create_study(direction="maximize", pruner=pruner)
 
     # Optimize the objective (with a little trick in order to pass args to it.
     objective = partial(objective, args)
