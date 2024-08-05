@@ -74,7 +74,7 @@ if __name__ == '__main__':
     model.eval()
 
     # Quantitative evaluation:
-    calculate_metrics(model, classifier, validation_loader, should_print=True, fixed="content")
+    metrics, _ = calculate_metrics(model, classifier, validation_loader, should_print=True, fixed="content")
     calculate_metrics(model, classifier, validation_loader, should_print=True, fixed="motion")
 
     # Qualitative evaluation:
