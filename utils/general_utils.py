@@ -175,15 +175,15 @@ def imshow_seqeunce(DATA, plot=True, titles=None, figsize=(50, 10), fontsize=50)
 from dataclasses import is_dataclass, fields
 import torch
 
+
 def dataclass_to_dict(instance):
     """
-    Convert a dataclass instance to a dictionary, converting tensors to floats.
+    Convert a dataclass instance to a dictionary.
     """
     if not is_dataclass(instance):
         raise TypeError("Provided instance is not a dataclass")
 
-    return {f.name: (getattr(instance, f.name).item() if isinstance(getattr(instance, f.name), torch.Tensor) else getattr(instance, f.name)) for f in fields(instance)}
-
+    return {f.name: getattr(instance, f.name) for f in fields(instance)}
 
 
 @dataclass
@@ -262,26 +262,6 @@ def calculate_metrics(model: KoopmanVAE,
         mean_acc2_sample += acc2_sample
         mean_acc3_sample += acc3_sample
         mean_acc4_sample += acc4_sample
-
-    # Gather results from all GPUs
-    if dist.is_initialized():
-        mean_acc0_sample = torch.tensor(mean_acc0_sample, device=model.device)
-        mean_acc1_sample = torch.tensor(mean_acc1_sample, device=model.device)
-        mean_acc2_sample = torch.tensor(mean_acc2_sample, device=model.device)
-        mean_acc3_sample = torch.tensor(mean_acc3_sample, device=model.device)
-        mean_acc4_sample = torch.tensor(mean_acc4_sample, device=model.device)
-
-        dist.all_reduce(mean_acc0_sample, op=dist.ReduceOp.SUM)
-        dist.all_reduce(mean_acc1_sample, op=dist.ReduceOp.SUM)
-        dist.all_reduce(mean_acc2_sample, op=dist.ReduceOp.SUM)
-        dist.all_reduce(mean_acc3_sample, op=dist.ReduceOp.SUM)
-        dist.all_reduce(mean_acc4_sample, op=dist.ReduceOp.SUM)
-
-        mean_acc0_sample = mean_acc0_sample.item()
-        mean_acc1_sample = mean_acc1_sample.item()
-        mean_acc2_sample = mean_acc2_sample.item()
-        mean_acc3_sample = mean_acc3_sample.item()
-        mean_acc4_sample = mean_acc4_sample.item()
 
     # Calculate the accuracy in percentage.
     action_acc = mean_acc0_sample / len(val_loader) * 100

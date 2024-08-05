@@ -1,13 +1,14 @@
 from dataclasses import dataclass
+from torch import Tensor
 
 @dataclass
 class ModelLoss:
     """
     Dataclass for the different losses.
     """
-    sum_loss_weighted: float
-    reconstruction_loss: float
-    kl_divergence: float
-    x_pred_loss: float
-    z_pred_loss: float
-    spectral_loss: float
+    sum_loss_weighted: Tensor
+    reconstruction_loss: Tensor
+    kl_divergence: Tensor
+    x_pred_loss: Tensor
+    z_pred_loss: Tensor
+    spectral_loss: Tensor
