@@ -61,6 +61,8 @@ def clear_progressbar():
 
 def init_weights(model: nn.Module):
     for m in model.modules():
+        if not m.training:
+            continue
         if isinstance(m, nn.Conv2d):
             nn.init.normal_(m.weight, 0, 0.01)
             if m.bias is not None:
