@@ -446,6 +446,9 @@ class KoopmanVAE(L.LightningModule):
         # Convert dataclass to dictionary.
         instance_dict = dataclass_to_dict(instance)
 
+        print("Type:")
+        print(type(instance))
+
         # Convert dictionary to tensor for gathering.
         if is_tensors:
             # Preserve gradients.
@@ -458,6 +461,7 @@ class KoopmanVAE(L.LightningModule):
 
         # Gather tensors across devices
         gathered_tensors = self.all_gather(instance_tensor, sync_grads=is_tensors)
+        gathered_tensors = gathered_tensors.squeeze(dim=1)
 
         # Convert gathered tensors back to dictionary
         gathered_dict = {key: gathered_tensors[:, i].mean() for i, key in enumerate(instance_dict.keys())}
