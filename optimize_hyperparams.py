@@ -17,7 +17,10 @@ def define_args():
     # Define the arguments of the model.
     parser = train_cdsvae.define_args()
 
-    parser.add_argument('--pruning', default=True, action=argparse.BooleanOptionalAction)
+    parser.add_argument('--pruning', default=True, action=argparse.BooleanOptionalAction,
+                        help='Whether bad trials will be pruned.')
+    parser.add_argument('--multi-objective', default=False, action=argparse.BooleanOptionalAction,
+                        help='Whether to do a multi-objective optimization. Such optimization is not supported with pruning.')
     parser.add_argument('--n_trials', default=300, type=int, help='The number of optimization trials.')
 
     return parser
@@ -49,10 +52,13 @@ def objective(args: argparse.Namespace, trial: Trial) -> float:
     trainer.fit(model, data_module)
 
     try:
-        return trainer.callback_metrics["val/fixed_content_accuracy"].item()
+        if args.multi_objective:
+            return trainer.callback_metrics["val/fixed_content_accuracy"].item(), \
+                   trainer.callback_metrics["val/fixed_action_accuracy"].item()
+        else:
+            return trainer.callback_metrics["val/fixed_content_accuracy"].item()
     except KeyError:
         return 0
-
 
 
 if __name__ == "__main__":
@@ -74,7 +80,10 @@ if __name__ == "__main__":
     torch.set_float32_matmul_precision("high")
 
     # Set the study to maximize the accuracy with the pruner.
-    study = optuna.create_study(direction="maximize", pruner=pruner)
+    if args.multi_objective:
+        study = optuna.create_study(directions=["maximize", "maximize"])
+    else:
+        study = optuna.create_study(direction="maximize", pruner=pruner)
 
     # Optimize the objective (with a little trick in order to pass args to it.
     objective = partial(objective, args)
