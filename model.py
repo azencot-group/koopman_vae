@@ -446,9 +446,6 @@ class KoopmanVAE(L.LightningModule):
         # Convert dataclass to dictionary.
         instance_dict = dataclass_to_dict(instance)
 
-        print("Type:")
-        print(type(instance))
-
         # Convert dictionary to tensor for gathering.
         if is_tensors:
             # Preserve gradients.

@@ -17,7 +17,11 @@ def define_args():
     # Define the arguments of the model.
     parser = train_cdsvae.define_args()
 
-    parser.add_argument('--pruning', default=True, action=argparse.BooleanOptionalAction)
+    parser.add_argument('--pruning', default=True, action=argparse.BooleanOptionalAction,
+                        help='Whether bad trials will be pruned.')
+    parser.add_argument('--multi-objective', default=False, action=argparse.BooleanOptionalAction,
+                        help='Whether to do a multi-objective optimization.'
+                             ' Such optimization is not supported with pruning.')
     parser.add_argument('--n_trials', default=300, type=int, help='The number of optimization trials.')
 
     return parser
@@ -38,21 +42,30 @@ def objective(args: argparse.Namespace, trial: Trial) -> float:
     # Create model.
     model = KoopmanVAE(args)
 
+    # Set the pruning callback.
+    if args.pruning:
+        callbacks = [PyTorchLightningPruningCallback(trial, monitor="val/fixed_content_accuracy")]
+    else:
+        callbacks = None
+
     # Train the model.
     data_module = SpriteDataModule(args.dataset_path, args.batch_size)
     trainer = Trainer(max_epochs=args.epochs,
                       check_val_every_n_epoch=args.evl_interval,
                       accelerator='gpu',
-                      callbacks=[PyTorchLightningPruningCallback(trial, monitor="val/fixed_content_accuracy")],
+                      callbacks=callbacks,
                       devices=1,
                       num_nodes=1)
     trainer.fit(model, data_module)
 
     try:
-        return trainer.callback_metrics["val/fixed_content_accuracy"].item()
+        if args.multi_objective:
+            return trainer.callback_metrics["val/fixed_content_accuracy"].item(), \
+                   trainer.callback_metrics["val/fixed_action_accuracy"].item()
+        else:
+            return trainer.callback_metrics["val/fixed_content_accuracy"].item()
     except KeyError:
         return 0
-
 
 
 if __name__ == "__main__":
@@ -73,8 +86,12 @@ if __name__ == "__main__":
     # Set the matmul precision in order to save time.
     torch.set_float32_matmul_precision("high")
 
-    # Set the study to maximize the accuracy with the pruner.
-    study = optuna.create_study(direction="maximize", pruner=pruner)
+    # Create the study and add tag if needed.
+    if args.multi_objective:
+        study = optuna.create_study(directions=["maximize", "maximize"])
+        run["sys/tags"].add("Multi-Objective")
+    else:
+        study = optuna.create_study(direction="maximize", pruner=pruner)
 
     # Optimize the objective (with a little trick in order to pass args to it.
     objective = partial(objective, args)
