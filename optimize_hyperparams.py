@@ -86,9 +86,10 @@ if __name__ == "__main__":
     # Set the matmul precision in order to save time.
     torch.set_float32_matmul_precision("high")
 
-    # Set the study to maximize the accuracy with the pruner.
+    # Create the study and add tag if needed.
     if args.multi_objective:
         study = optuna.create_study(directions=["maximize", "maximize"])
+        run["sys/tags"].add("Multi-Objective")
     else:
         study = optuna.create_study(direction="maximize", pruner=pruner)
 
