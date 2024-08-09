@@ -20,7 +20,8 @@ def define_args():
     parser.add_argument('--pruning', default=True, action=argparse.BooleanOptionalAction,
                         help='Whether bad trials will be pruned.')
     parser.add_argument('--multi-objective', default=False, action=argparse.BooleanOptionalAction,
-                        help='Whether to do a multi-objective optimization. Such optimization is not supported with pruning.')
+                        help='Whether to do a multi-objective optimization.'
+                             ' Such optimization is not supported with pruning.')
     parser.add_argument('--n_trials', default=300, type=int, help='The number of optimization trials.')
 
     return parser
@@ -41,12 +42,18 @@ def objective(args: argparse.Namespace, trial: Trial) -> float:
     # Create model.
     model = KoopmanVAE(args)
 
+    # Set the pruning callback.
+    if args.pruning:
+        callbacks = [PyTorchLightningPruningCallback(trial, monitor="val/fixed_content_accuracy")]
+    else:
+        callbacks = None
+
     # Train the model.
     data_module = SpriteDataModule(args.dataset_path, args.batch_size)
     trainer = Trainer(max_epochs=args.epochs,
                       check_val_every_n_epoch=args.evl_interval,
                       accelerator='gpu',
-                      callbacks=[PyTorchLightningPruningCallback(trial, monitor="val/fixed_content_accuracy")],
+                      callbacks=callbacks,
                       devices=1,
                       num_nodes=1)
     trainer.fit(model, data_module)
