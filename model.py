@@ -377,7 +377,8 @@ class KoopmanVAE(L.LightningModule):
 
         # Set the scheduler.
         if self.sche == "cosine":
-            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=(self.epochs+1)//2, eta_min=2e-4)
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=(self.epochs + 1) // 2,
+                                                                   eta_min=2e-4)
         elif self.sche == "step":
             scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=self.epochs // 2, gamma=0.5)
         elif self.sche == "const":
@@ -433,6 +434,9 @@ class KoopmanVAE(L.LightningModule):
 
         # Pass the data through the model.
         outputs = self(x)
+        if outputs is None:
+            self.trainer.should_stop = True
+            return
 
         # Calculate the losses.
         model_losses = self.loss(x, outputs, self.batch_size)
@@ -467,6 +471,12 @@ class KoopmanVAE(L.LightningModule):
     def calculate_val_metrics_and_log(self, fixed: str):
         # Calculate the metrics.
         metrics, _ = calculate_metrics(self, self.classifier, self.trainer.val_dataloaders, fixed=fixed)
+        if metrics is None:
+            # Stop the training process if in the middle.
+            if self.trainer is not None:
+                self.trainer.should_stop = True
+
+            return
 
         # Gather all the metrics in a distributed run.
         metrics = self.gather_dataclass(metrics, is_tensors=False)
@@ -492,6 +502,13 @@ class KoopmanVAE(L.LightningModule):
 
         # Pass the posterior through the Koopman module and the Dropout layer.
         _, Ct = self.koopman_layer(z_post)
+        if Ct is None:
+            # Stop the training process if in the middle.
+            if self.trainer is not None:
+                self.trainer.should_stop = True
+
+            return None, None
+
         z_post = self.drop(z_post)
         z_original_shape = z_post.shape
 
@@ -511,7 +528,7 @@ class KoopmanVAE(L.LightningModule):
         Id, Is = static_dynamic_split(D, I, pick_type, static_size)
 
         # Sample z from the prior distribution.
-        z_mean_prior, z_logvar_prior, z_prior = self.sample_z(bsz, random_sampling=True)
+        z_mean_prior, z_logvar_prior, z_prior = self.sample_z(bsz, random_sampling=self.training)
 
         # Convert the sampled to ndarray.
         z_sampled = t_to_np(z_prior)
@@ -552,6 +569,12 @@ class KoopmanVAE(L.LightningModule):
 
         # Pass the posterior through the Koopman module and the Dropout layer.
         Z2, Ct = self.koopman_layer(z_post)
+        if Ct is None:
+            # Stop the training process if in the middle.
+            if self.trainer is not None:
+                self.trainer.should_stop = True
+
+            return None, None
 
         # swap a single pair in batch
         bsz, fsz = X.shape[0:2]
@@ -681,7 +704,9 @@ class KoopmanVAE(L.LightningModule):
         # Pass the posterior through the Koopman module and the Dropout layer.
         z_post_koopman, Ct = self.koopman_layer(z_post)
         if Ct is None:
-            self.trainer.should_stop = True
+            if self.trainer is not None:
+                self.trainer.should_stop = True
+
             return None
 
         z_post_dropout = self.drop(z_post)

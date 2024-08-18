@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 from dataclasses import dataclass, fields, is_dataclass
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Tuple
 
 # Add the parent directory to the Python path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -208,7 +208,7 @@ def calculate_metrics(model: KoopmanVAE,
                       classifier: nn.Module,
                       val_loader: DataLoader,
                       fixed: str = "content",
-                      should_print: bool = False) -> tuple[ModelMetrics, ModelSubMetrics]:
+                      should_print: bool = False) -> tuple[None, None] | tuple[ModelMetrics, ModelSubMetrics]:
     e_values_action, e_values_skin, e_values_pant, e_values_top, e_values_hair = [], [], [], [], []
     mean_acc0, mean_acc1, mean_acc2, mean_acc3, mean_acc4 = 0, 0, 0, 0, 0
     mean_acc0_sample, mean_acc1_sample, mean_acc2_sample, mean_acc3_sample, mean_acc4_sample = 0, 0, 0, 0, 0
@@ -223,6 +223,9 @@ def calculate_metrics(model: KoopmanVAE,
             recon_x_sample, recon_x = model.forward_fixed_content_for_classification(x)
         else:
             recon_x_sample, recon_x = model.forward_fixed_motion_for_classification(x)
+
+        if recon_x is None:
+            return None, None
 
         with torch.no_grad():
             pred_action1, pred_skin1, pred_pant1, pred_top1, pred_hair1 = classifier(x)
