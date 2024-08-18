@@ -7,7 +7,7 @@ from lightning.pytorch import seed_everything
 # Add the parent directory to the Python path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-import train_cdsvae
+from input_parser.basic_input_parser import define_basic_args
 from model import KoopmanVAE
 from classifier import classifier_Sprite_all
 from utils.general_utils import reorder, imshow_seqeunce, calculate_metrics
@@ -16,8 +16,8 @@ from utils.koopman_utils import swap
 
 
 def define_args():
-    # Define the arguments of the model.
-    parser = train_cdsvae.define_args()
+    # Define the basic arguments of the model.
+    parser = define_basic_args()
 
     parser.add_argument('--model_path', type=str, default=None, help='ckpt directory')
     parser.add_argument('--model_name', type=str, default=None)
@@ -40,14 +40,16 @@ def show_sampling(x, content_action_sampling_index, static_size=None):
                     titles=np.asarray([titles]).T, figsize=(50, 10), fontsize=50)
 
 
-def swap_within_batch(x, first_idx: int, second_idx: int):
+def swap_within_batch(model, x, first_idx: int, second_idx: int, static_size, plot=True):
     # Transfer the data through the model.
     outputs = model(x)
     dropout_recon_x, koopman_matrix, z_post = outputs[-1], outputs[-3], outputs[-4]
 
     # Perform the swap.
     indices = [first_idx, second_idx]
-    swap(model, x, z_post, koopman_matrix, indices, args.static_size, plot=True)
+    fig = swap(model, x, z_post, koopman_matrix, indices, static_size, plot=plot)
+
+    return fig
 
 
 if __name__ == '__main__':
@@ -88,7 +90,7 @@ if __name__ == '__main__':
     show_sampling(x, content_action_sampling_index=1)
 
     # Swap between two batch images.
-    swap_within_batch(x, 0, 1)
+    swap_within_batch(model, x, first_idx=0, second_idx=1, static_size=args.static_size)
 
     # # --------------- Performing multi-factor swap --------------- #
     # """ Sprites have 4 factors of variation in the static subspace(appearance of the character):
