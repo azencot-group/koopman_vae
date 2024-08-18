@@ -6,7 +6,8 @@ import numpy as np
 import lightning as L
 
 from classifier import classifier_Sprite_all
-from utils.general_utils import reorder, t_to_np, calculate_metrics, dataclass_to_dict, init_weights
+from utils.general_utils import reorder, t_to_np, calculate_metrics, dataclass_to_dict, init_weights, ModelMetrics, \
+    ModelSubMetrics
 from utils.koopman_utils import get_unique_num, static_dynamic_split, get_sorted_indices
 from loss import ModelLoss
 
@@ -401,6 +402,22 @@ class KoopmanVAE(L.LightningModule):
         # Log the dictionary.
         self.log_dict(data_dict, on_epoch=on_epoch, on_step=on_step, sync_dist=True)
 
+    def log_purity(self, metrics: ModelMetrics, sub_metrics: ModelSubMetrics, fixed: str):
+        # Calculate the mean of the body parts.
+        body_parts_mean = (sub_metrics.top_accuracy
+                           + sub_metrics.hair_accuracy
+                           + sub_metrics.skin_accuracy
+                           + sub_metrics.pants_accuracy) / 4
+
+        # Calculate the purity metric.
+        if fixed == "content":
+            purity_metric = body_parts_mean - metrics.accuracy
+        else:
+            purity_metric = metrics.accuracy - body_parts_mean
+
+        # Log the metric.
+        self.log(f'fixed_{fixed}_purity', purity_metric, on_epoch=True, on_step=False, sync_dist=True)
+
     def training_step(self, batch, batch_idx):
         # Get the data of the batch and reorder the images.
         x = reorder(batch['images'])
@@ -485,6 +502,9 @@ class KoopmanVAE(L.LightningModule):
         # Log the metrics.
         self.log_dataclass(metrics, key_prefix=f"fixed_{fixed}_", val=True, on_epoch=True, on_step=False)
         self.log_dataclass(sub_metrics, key_prefix=f"fixed_{fixed}_", val=True, on_epoch=True, on_step=False)
+
+        # Log the calculated purities.
+        self.log_purity(metrics, sub_metrics, fixed=fixed)
 
     def on_validation_epoch_end(self) -> None:
         # Calculate and log the fixed content metrics.
