@@ -470,7 +470,7 @@ class KoopmanVAE(L.LightningModule):
 
     def calculate_val_metrics_and_log(self, fixed: str):
         # Calculate the metrics.
-        metrics, _ = calculate_metrics(self, self.classifier, self.trainer.val_dataloaders, fixed=fixed)
+        metrics, sub_metrics = calculate_metrics(self, self.classifier, self.trainer.val_dataloaders, fixed=fixed)
         if metrics is None:
             # Stop the training process if in the middle.
             if self.trainer is not None:
@@ -480,9 +480,11 @@ class KoopmanVAE(L.LightningModule):
 
         # Gather all the metrics in a distributed run.
         metrics = self.gather_dataclass(metrics, is_tensors=False)
+        sub_metrics = self.gather_dataclass(sub_metrics, is_tensors=False)
 
         # Log the metrics.
         self.log_dataclass(metrics, key_prefix=f"fixed_{fixed}_", val=True, on_epoch=True, on_step=False)
+        self.log_dataclass(sub_metrics, key_prefix=f"fixed_{fixed}_", val=True, on_epoch=True, on_step=False)
 
     def on_validation_epoch_end(self) -> None:
         # Calculate and log the fixed content metrics.

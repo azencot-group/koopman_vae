@@ -188,7 +188,6 @@ def dataclass_to_dict(instance):
 
 @dataclass
 class ModelSubMetrics:
-    action_accuracy: float
     skin_accuracy: float
     pants_accuracy: float
     top_accuracy: float
@@ -298,5 +297,4 @@ def calculate_metrics(model: KoopmanVAE,
         print('acc: {:.2f}%, kl: {:.4f}, IS: {:.4f}, H_yx: {:.4f}, H_y: {:.4f}'.format(acc * 100, kl, IS, H_yx, H_y))
 
     return ModelMetrics(accuracy=acc, kl_divergence=kl, inception_score=IS, H_yx=H_yx, H_y=H_y), \
-           ModelSubMetrics(action_accuracy=action_acc, skin_accuracy=skin_acc, pants_accuracy=pant_acc,
-                           top_accuracy=top_acc, hair_accuracy=hair_acc)
+        ModelSubMetrics(skin_accuracy=skin_acc, pants_accuracy=pant_acc, top_accuracy=top_acc, hair_accuracy=hair_acc)
