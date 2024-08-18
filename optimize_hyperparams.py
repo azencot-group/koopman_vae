@@ -15,7 +15,7 @@ from model import KoopmanVAE
 
 def define_args():
     # Define the arguments of the model.
-    parser = train_cdsvae.define_args()
+    parser = train_cdsvae.define_basic_args()
 
     parser.add_argument('--pruning', default=True, action=argparse.BooleanOptionalAction,
                         help='Whether bad trials will be pruned.')

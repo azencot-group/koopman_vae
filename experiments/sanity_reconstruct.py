@@ -6,14 +6,14 @@ from lightning.pytorch import seed_everything
 # Add the parent directory to the Python path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-import train_cdsvae
+from input_parser.basic_input_parser import define_basic_args
 from model import KoopmanVAE
 from utils.general_utils import imshow_seqeunce, reorder
 
 
 def define_args():
     # Define the arguments of the model.
-    parser = train_cdsvae.define_args()
+    parser = define_basic_args()
 
     parser.add_argument('--model_path', type=str, default=None, help='ckpt directory')
     parser.add_argument('--model_name', type=str, default=None)

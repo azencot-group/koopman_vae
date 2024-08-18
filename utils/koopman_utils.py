@@ -92,7 +92,7 @@ def swap(model, X, Z, C, indices, static_size, plot=False, pick_type='norm'):
     Id, Is = static_dynamic_split(D, I, pick_type, static_size)
 
     # Plot the eigenvalues.
-    plot_eigenvalues(D, Id, Is)
+    fig = plot_eigenvalues(D, Id, Is, plot=plot)
 
     # Zp* is in t x k
     Z1d, Z1s = Zp1[:, Id] @ U[Id], Zp1[:, Is] @ U[Is]
@@ -111,13 +111,15 @@ def swap(model, X, Z, C, indices, static_size, plot=False, pick_type='norm'):
         imshow_seqeunce([[S1], [S2], [S1d2s.squeeze()], [S2d1s.squeeze()]],
                         plot=plot, titles=np.asarray([titles]).T, figsize=(50, 10), fontsize=50)
 
+    return fig
 
-def plot_eigenvalues(eigenvalues, Id, Is):
+
+def plot_eigenvalues(eigenvalues, Id, Is, plot=True):
     dynamic_eigenvalues = eigenvalues[Id]
     static_eigenvalues = eigenvalues[Is]
 
     # Create the plot
-    plt.figure(figsize=(8, 6))
+    fig = plt.figure(figsize=(8, 6))
 
     # Extract the real and imaginary parts of the eigenvalues
     for i, (eigvals_type, color) in enumerate([(dynamic_eigenvalues, "blue"), (static_eigenvalues, "red")]):
@@ -147,7 +149,10 @@ def plot_eigenvalues(eigenvalues, Id, Is):
     plt.title('Eigenvalues on the Real-Imaginary Plane')
 
     # Show the plot
-    plt.show()
+    if plot:
+        plt.show()
+
+    return fig
 
 
 def swap_by_index(model, X, Z, C, indices, Sev_idx, Dev_idx, plot=False):
