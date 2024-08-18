@@ -377,9 +377,7 @@ class KoopmanVAE(L.LightningModule):
 
         # Set the scheduler.
         if self.sche == "cosine":
-            # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=(args.epochs+1)//2, eta_min=2e-4)
-            scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, eta_min=2e-4,
-                                                                             T_0=(self.epochs + 1) // 2, T_mult=1)
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=(self.epochs+1)//2, eta_min=2e-4)
         elif self.sche == "step":
             scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=self.epochs // 2, gamma=0.5)
         elif self.sche == "const":
