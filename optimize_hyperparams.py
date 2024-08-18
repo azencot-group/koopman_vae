@@ -44,7 +44,7 @@ def objective(args: argparse.Namespace, trial: Trial) -> float:
 
     # Set the pruning callback.
     if args.pruning:
-        callbacks = [PyTorchLightningPruningCallback(trial, monitor="val/fixed_content_accuracy")]
+        callbacks = [PyTorchLightningPruningCallback(trial, monitor="fixed_content_purity")]
     else:
         callbacks = None
 
@@ -60,10 +60,10 @@ def objective(args: argparse.Namespace, trial: Trial) -> float:
 
     try:
         if args.multi_objective:
-            return trainer.callback_metrics["val/fixed_content_accuracy"].item(), \
-                   trainer.callback_metrics["val/fixed_action_accuracy"].item()
+            return trainer.callback_metrics["fixed_content_purity"].item(), \
+                   trainer.callback_metrics["fixed_action_purity"].item()
         else:
-            return trainer.callback_metrics["val/fixed_content_accuracy"].item()
+            return trainer.callback_metrics["fixed_content_purity"].item()
     except KeyError:
         return 0
 
