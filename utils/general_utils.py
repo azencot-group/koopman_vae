@@ -283,6 +283,7 @@ def calculate_metrics(model: KoopmanVAE,
     pred2_all = np.vstack(pred2_all)
 
     acc = (label_gt == label2_all).mean()
+    acc *= 100
     kl = KL_divergence(pred2_all, pred1_all)
 
     nSample_per_cls = min([(label_gt == i).sum() for i in np.unique(label_gt)])
@@ -294,7 +295,7 @@ def calculate_metrics(model: KoopmanVAE,
     H_y = entropy_Hy(pred2_selected)
 
     if should_print:
-        print('acc: {:.2f}%, kl: {:.4f}, IS: {:.4f}, H_yx: {:.4f}, H_y: {:.4f}'.format(acc * 100, kl, IS, H_yx, H_y))
+        print('acc: {:.2f}%, kl: {:.4f}, IS: {:.4f}, H_yx: {:.4f}, H_y: {:.4f}'.format(acc, kl, IS, H_yx, H_y))
 
     return ModelMetrics(accuracy=acc, kl_divergence=kl, inception_score=IS, H_yx=H_yx, H_y=H_y), \
         ModelSubMetrics(skin_accuracy=skin_acc, pants_accuracy=pant_acc, top_accuracy=top_acc, hair_accuracy=hair_acc)
