@@ -57,7 +57,6 @@ if __name__ == '__main__':
 
     # Create model.
     model = KoopmanVAE(args)
-    torch.set_float32_matmul_precision("high")
 
     # Create the checkpoints.
     current_training_logs_dir = os.path.join(args.models_during_training_dir, args.model_name)

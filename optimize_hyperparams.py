@@ -86,9 +86,6 @@ if __name__ == "__main__":
     # Add the appropriate tags to the run.
     NeptuneTagsManager.add_tags(run, args, is_optuna=True)
 
-    # Set the matmul precision in order to save time.
-    torch.set_float32_matmul_precision("high")
-
     # Create the study.
     if args.multi_objective:
         study = optuna.create_study(directions=["maximize", "maximize"])
