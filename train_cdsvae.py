@@ -7,6 +7,7 @@ from lightning.pytorch.loggers import NeptuneLogger
 from datamodule.sprite_datamodule import SpriteDataModule
 
 from input_parser.basic_input_parser import define_basic_args
+from neptune_tags_manager.neptune_tags_manager import NeptuneTagsManager
 from experiments.disentenglement_swaps import swap_within_batch
 from utils.general_utils import reorder
 from model import KoopmanVAE
@@ -92,9 +93,11 @@ if __name__ == '__main__':
     neptune_logger = NeptuneLogger(
         api_key="eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vYXBwLm5lcHR1bmUuYWkiLCJhcGlfdXJsIjoiaHR0cHM6Ly9hcHAubmVwdHVuZS5haSIsImFwaV9rZXkiOiJlNjg4NDkxMS04N2NhLTRkOTctYjY0My05NDY2OGU0NGJjZGMifQ==",
         project="azencot-group/koopman-vae",
-        log_model_checkpoints=False,
-        tags=["full_train"])
+        log_model_checkpoints=False)
     neptune_logger.log_hyperparams(args)
+
+    # Add the appropriate tags to the run.
+    NeptuneTagsManager.add_tags(neptune_logger.run, args, is_optuna=False)
 
     # Train the model.
     data_module = SpriteDataModule(args.dataset_path, args.batch_size)

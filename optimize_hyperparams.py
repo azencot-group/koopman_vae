@@ -8,6 +8,7 @@ import neptune
 import neptune.integrations.optuna as npt_utils
 from lightning.pytorch import Trainer, seed_everything
 
+from neptune_tags_manager.neptune_tags_manager import NeptuneTagsManager
 from datamodule.sprite_datamodule import SpriteDataModule
 import train_cdsvae
 from model import KoopmanVAE
@@ -17,9 +18,9 @@ def define_args():
     # Define the arguments of the model.
     parser = train_cdsvae.define_basic_args()
 
-    parser.add_argument('--pruning', default=True, action=argparse.BooleanOptionalAction,
+    parser.add_argument('--pruning', default=False, action=argparse.BooleanOptionalAction,
                         help='Whether bad trials will be pruned.')
-    parser.add_argument('--multi-objective', default=False, action=argparse.BooleanOptionalAction,
+    parser.add_argument('--multi-objective', default=True, action=argparse.BooleanOptionalAction,
                         help='Whether to do a multi-objective optimization.'
                              ' Such optimization is not supported with pruning.')
     parser.add_argument('--n_trials', default=300, type=int, help='The number of optimization trials.')
@@ -78,21 +79,22 @@ if __name__ == "__main__":
 
     # Initialize the neptune run.
     run = neptune.init_run(project="azencot-group/koopman-vae",
-                           api_token="eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vYXBwLm5lcHR1bmUuYWkiLCJhcGlfdXJsIjoiaHR0cHM6Ly9hcHAubmVwdHVuZS5haSIsImFwaV9rZXkiOiJlNjg4NDkxMS04N2NhLTRkOTctYjY0My05NDY2OGU0NGJjZGMifQ==",
-                           tags=["Optuna"]
+                           api_token="eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vYXBwLm5lcHR1bmUuYWkiLCJhcGlfdXJsIjoiaHR0cHM6Ly9hcHAubmVwdHVuZS5haSIsImFwaV9rZXkiOiJlNjg4NDkxMS04N2NhLTRkOTctYjY0My05NDY2OGU0NGJjZGMifQ=="
                            )
     neptune_callback = npt_utils.NeptuneCallback(run)
+
+    # Add the appropriate tags to the run.
+    NeptuneTagsManager.add_tags(run, args, is_optuna=True)
 
     # Set the matmul precision in order to save time.
     torch.set_float32_matmul_precision("high")
 
-    # Create the study and add tag if needed.
+    # Create the study.
     if args.multi_objective:
         study = optuna.create_study(directions=["maximize", "maximize"])
-        run["sys/tags"].add("Multi-Objective")
     else:
         study = optuna.create_study(direction="maximize", pruner=pruner)
 
-    # Optimize the objective (with a little trick in order to pass args to it.
+    # Optimize the objective (with a little trick in order to pass args to it).
     objective = partial(objective, args)
     study.optimize(objective, n_trials=args.n_trials, callbacks=[neptune_callback])
