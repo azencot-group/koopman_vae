@@ -13,19 +13,20 @@ class NeptuneTagsManager:
     # The path to the tags in a neptune run.
     __RUN_TAGS_PATH = "sys/tags"
 
+    @staticmethod
+    def check_attribute(obj, attr):
+        return hasattr(obj, attr) and getattr(obj, attr)
+
     @classmethod
     def add_tags(cls, run: neptune.Run, args: argparse.Namespace, is_optuna: bool = False):
         tags = []
-
-        # Declare the function that checks for attribute existence.
-        check_attribute = lambda obj, attr: hasattr(obj, attr) and getattr(obj, attr)
 
         # Add the optuna tag if needed.
         if is_optuna:
             tags.append(cls.__OPTUNA_TAG)
 
             # Add the multi-objective only if it exists and true.
-            if check_attribute(args, "multi_objective"):
+            if cls.check_attribute(args, "multi_objective"):
                 tags.append(cls.__MULTI_OBJECTIVE_TAG)
 
         # Otherwise add the full train tag.
@@ -33,7 +34,7 @@ class NeptuneTagsManager:
             tags.append(cls.__FULL_TRAIN_TAG)
 
         # Add the sampling type.
-        if check_attribute(args, "prior_sampling"):
+        if cls.check_attribute(args, "prior_sampling"):
             tags.append(cls.__PRIOR_SAMPLING_TAG)
 
         else:
