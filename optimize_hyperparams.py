@@ -18,9 +18,9 @@ def define_args():
     # Define the arguments of the model.
     parser = train_cdsvae.define_basic_args()
 
-    parser.add_argument('--pruning', default=True, action=argparse.BooleanOptionalAction,
+    parser.add_argument('--pruning', default=False, action=argparse.BooleanOptionalAction,
                         help='Whether bad trials will be pruned.')
-    parser.add_argument('--multi-objective', default=False, action=argparse.BooleanOptionalAction,
+    parser.add_argument('--multi-objective', default=True, action=argparse.BooleanOptionalAction,
                         help='Whether to do a multi-objective optimization.'
                              ' Such optimization is not supported with pruning.')
     parser.add_argument('--n_trials', default=300, type=int, help='The number of optimization trials.')
