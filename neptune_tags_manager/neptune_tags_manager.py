@@ -19,7 +19,7 @@ class NeptuneTagsManager:
 
     @classmethod
     def add_tags(cls, run: neptune.Run, args: argparse.Namespace, is_optuna: bool = False):
-        tags = []
+        tags = ["without_post"]
 
         # Add the optuna tag if needed.
         if is_optuna:
