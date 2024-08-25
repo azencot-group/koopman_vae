@@ -1,5 +1,4 @@
-import neptune
-import pytorch_lightning as pl
+from lightning.pytorch import Callback, Trainer
 import numpy as np
 from lightning.fabric.utilities import rank_zero_only
 from matplotlib import pyplot as plt
@@ -10,7 +9,7 @@ from utils.general_utils import reorder, imshow_seqeunce
 from model import KoopmanVAE
 
 
-class VisualisationsLoggerCallback(pl.Callback):
+class VisualisationsLoggerCallback(Callback):
     """
     This module logs several visualisation images:
     1. Spectral image.
@@ -48,7 +47,7 @@ class VisualisationsLoggerCallback(pl.Callback):
     __RECONSTRUCTION_FIGURES_SERIES_NAME = "reconstruction"
 
     # The name of the sampled figures' series.
-    __SAMPLED_FIGURES_SERIES_NAME = "spectral"
+    __SAMPLED_FIGURES_SERIES_NAME = "sampled"
 
     def __init__(self, validations_interval: int):
         super().__init__()
@@ -61,13 +60,13 @@ class VisualisationsLoggerCallback(pl.Callback):
 
     @classmethod
     @rank_zero_only
-    def log_figure_to_series(cls, trainer: pl.Trainer, series_name: str, figure: plt.Figure):
+    def log_figure_to_series(cls, trainer: Trainer, series_name: str, figure: plt.Figure):
         trainer.logger.experiment[f'{cls.__VISUALISATION_DIR}/{series_name}'].append(
             value=figure,
             name=f'{series_name}-epoch-{trainer.current_epoch}')
 
     @rank_zero_only
-    def on_validation_epoch_end(self, trainer: pl.Trainer, model: KoopmanVAE) -> None:
+    def on_validation_epoch_end(self, trainer: Trainer, model: KoopmanVAE) -> None:
         # Increase the counter.
         self._validation_epochs_counter += 1
 
@@ -91,14 +90,14 @@ class VisualisationsLoggerCallback(pl.Callback):
              Ct, koopman_recon_x, recon_x) = outputs
 
             # Get the Spectral image and the swap plots.
-            spectral_fig, swap_fig = swap(model, x, z_post, Ct, self.__SWAP_INDICES, model.koopman_layer.static_size)
+            spectral_fig, swap_fig = swap(model, x, z_post, Ct, self.__SWAP_INDICES, model.koopman_layer.static_size, plot=False)
 
             # Get the reconstruction plots.
             titles = ['Original image:', 'Reconstructed image koopman:', 'Original image:',
                       'Reconstructed image normal:']
             reconstructions_fig = imshow_seqeunce(
                 [[x[self.__RECONSTRUCTION_INDEX]], [koopman_recon_x[self.__RECONSTRUCTION_INDEX]],
-                 [x[self.__RECONSTRUCTION_INDEX]], [recon_x[self.__RECONSTRUCTION_INDEX]]],
+                 [x[self.__RECONSTRUCTION_INDEX]], [recon_x[self.__RECONSTRUCTION_INDEX]]], plot=False,
                 titles=np.asarray([titles]).T)
 
             # Sample an example from the model.
@@ -106,7 +105,7 @@ class VisualisationsLoggerCallback(pl.Callback):
             titles = ['Sampling example #1:', 'Sampling example #2:', 'Sampling example #3:',
                       'Sampling example #4:']
             samples_fig = imshow_seqeunce([[sampled_examples[0]], [sampled_examples[1]], [sampled_examples[2]],
-                                           [sampled_examples[3]]],
+                                           [sampled_examples[3]]], plot=False,
                                           titles=np.asarray([titles]).T)
 
             # Log the spectral figure.
