@@ -171,6 +171,8 @@ def imshow_seqeunce(DATA, plot=True, titles=None, figsize=(50, 10), fontsize=50)
     if plot:
         plt.show()
 
+    return fig
+
 
 from dataclasses import is_dataclass, fields
 import torch
