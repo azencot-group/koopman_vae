@@ -112,5 +112,6 @@ if __name__ == '__main__':
     trainer.fit(model, data_module, ckpt_path=checkpoint_to_resume)
 
     # Create the eigen-image and upload it.
-    fig = create_eigenimage(model, static_size=args.static_size)
-    neptune_logger.experiment['eigen-image'].upload(fig)
+    if not model.koopman_layer.is_matrix_singular:
+        fig = create_eigenimage(model, static_size=args.static_size)
+        neptune_logger.experiment['eigen-image'].upload(fig)
