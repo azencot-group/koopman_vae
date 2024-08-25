@@ -37,7 +37,7 @@ def show_sampling(x, content_action_sampling_index, static_size=None):
     imshow_seqeunce([[x[content_action_sampling_index]], [recon_x[content_action_sampling_index]],
                      [recon_x_sample_content[content_action_sampling_index]],
                      [recon_x_sample_motion[content_action_sampling_index]]],
-                    titles=np.asarray([titles]).T, figsize=(50, 10), fontsize=50)
+                    titles=np.asarray([titles]).T)
 
 
 def swap_within_batch(model, x, first_idx: int, second_idx: int, static_size, plot=True):

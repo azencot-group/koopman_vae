@@ -881,6 +881,11 @@ class KoopmanVAE(L.LightningModule):
         return z_means, z_logvars, z_out
 
     def decode(self, Z):
-        X_dec = self.decoder(Z)
+        return self.decoder(Z)
 
-        return X_dec
+    def sample_x(self, batch_size, random_sampling=True):
+        # Start by sampling a latent variable.
+        z_means, z_logvars, z_prior = self.sample_z(batch_size, random_sampling)
+
+        # Decode the latent variable and return.
+        return self.decode(z_prior)

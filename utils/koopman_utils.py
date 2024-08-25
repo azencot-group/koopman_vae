@@ -3,7 +3,6 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 
-
 # Add the parent directory to the Python path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -92,7 +91,7 @@ def swap(model, X, Z, C, indices, static_size, plot=False, pick_type='norm'):
     Id, Is = static_dynamic_split(D, I, pick_type, static_size)
 
     # Plot the eigenvalues.
-    fig = plot_eigenvalues(D, Id, Is, plot=plot)
+    eigenvalues_fig = plot_eigenvalues(D, Id, Is, plot=plot)
 
     # Zp* is in t x k
     Z1d, Z1s = Zp1[:, Id] @ U[Id], Zp1[:, Is] @ U[Is]
@@ -105,13 +104,12 @@ def swap(model, X, Z, C, indices, static_size, plot=False, pick_type='norm'):
     S1d2s = model.decode(torch.from_numpy(Z1d2s.reshape((fsz, -1, 1, 1))).to(device))
     S2d1s = model.decode(torch.from_numpy(Z2d1s.reshape((fsz, -1, 1, 1))).to(device))
 
-    # visualize
-    if plot:
-        titles = ['S{}'.format(ii1), 'S{}'.format(ii2), 'S{}d{}s'.format(ii1, ii2), 'S{}d{}s'.format(ii2, ii1)]
-        imshow_seqeunce([[S1], [S2], [S1d2s.squeeze()], [S2d1s.squeeze()]],
-                        plot=plot, titles=np.asarray([titles]).T, figsize=(50, 10), fontsize=50)
+    # Get the swap image and visualize.
+    titles = ['S{}'.format(ii1), 'S{}'.format(ii2), 'S{}d{}s'.format(ii1, ii2), 'S{}d{}s'.format(ii2, ii1)]
+    swap_fig = imshow_seqeunce([[S1], [S2], [S1d2s.squeeze()], [S2d1s.squeeze()]],
+                               plot=plot, titles=np.asarray([titles]).T)
 
-    return fig
+    return eigenvalues_fig, swap_fig
 
 
 def plot_eigenvalues(eigenvalues, Id, Is, plot=True):
@@ -203,6 +201,6 @@ def swap_by_index(model, X, Z, C, indices, Sev_idx, Dev_idx, plot=False):
         titles = ['S{}'.format(ii1), 'S{}'.format(ii2), 'S{}d{}s'.format(ii1, ii2), 'S{}d{}s'.format(ii2, ii1),
                   'S{}s'.format(ii1), 'S{}s'.format(ii2), 'S{}d'.format(ii1), 'S{}d'.format(ii2)]
         imshow_seqeunce([[S1], [S2], [S1d2s.squeeze()], [S2d1s.squeeze()]],
-                        plot=plot, titles=np.asarray([titles[:4]]).T, figsize=(50, 10), fontsize=50)
+                        plot=plot, titles=np.asarray([titles[:4]]).T)
 
     return S1d2s, S2d1s, Z1d2s, Z2d1s
