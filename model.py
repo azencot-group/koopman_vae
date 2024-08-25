@@ -195,6 +195,19 @@ class KoopmanLayer(nn.Module):
         self.loss_func = nn.MSELoss()
         self.dynamic_threshold_loss = nn.Threshold(args.dynamic_thresh, 0)
 
+        # Mark whether the Koopman matrix is singular.
+        self._is_matrix_singular = False
+
+    @property
+    def is_matrix_singular(self):
+        return self._is_matrix_singular
+
+
+    @is_matrix_singular.setter
+    def is_matrix_singular(self, is_matrix_singular):
+        self._is_matrix_singular = is_matrix_singular
+
+
     def forward(self, Z):
         # Z is in b * t x c x 1 x 1
         Zr = Z.squeeze().reshape(-1, self.frames, self.k_dim)
@@ -208,8 +221,12 @@ class KoopmanLayer(nn.Module):
         # Predict (broadcast) by calculating the forward in time.
         Y2 = X @ Ct
 
-        # If the calculation is not stable - return None as the latent variable and the koopman matrix.
+        # If the calculation is not stable - mark that the matrix is singular and return None.
         if torch.sum(torch.isnan(Y2)) != 0:
+            # Mark that the matrix is singular.
+            self.is_matrix_singular = True
+
+            # Return None.
             return None, None
 
         # Concatenate t0 to the forward in time.
