@@ -1,5 +1,6 @@
 import argparse
 
+
 def define_basic_args():
     parser = argparse.ArgumentParser()
 
@@ -9,7 +10,8 @@ def define_basic_args():
     parser.add_argument('--epochs', default=1000, type=int, help='number of epochs to train for')
     parser.add_argument('--seed', default=1, type=int, help='manual seed')
     parser.add_argument('--evl_interval', default=5, type=int, help='evaluate every n epochs')
-    parser.add_argument('--save_visualisations_interval', default=50, type=int, help='Save the visualisations every n epochs')
+    parser.add_argument('--save_visualisations_interval', default=50, type=int,
+                        help='Save the visualisations every n epochs')
     parser.add_argument('--save_model_interval', default=30, type=int, help='save checkpoint n epoch')
     parser.add_argument('--early_stop_patience', default=20, type=int, help='Patience for the early stop.')
     parser.add_argument('--save_n_val_best', default=3, type=int,
@@ -69,11 +71,21 @@ def define_basic_args():
                                                                           'transformation in time.')
     parser.add_argument('--weight_spectral', default=0.07, type=float, help='Weight of the spectral loss.')
 
-    # Additional arguments.
+    # Validation parameters.
     parser.add_argument('--type_gt', type=str, default='action', help='action, skin, top, pant, hair')
-    parser.add_argument('--classifier_path', type=str,
+    parser.add_argument('--two_factor_classifier_path', type=str,
                         default=f'{project_working_directory}/judges/Sprite/sprite_judge.tar',
-                        help='Path to the classifier weights.')
+                        help='Path to the two factor classifier weights.')
+    parser.add_argument('--multifactor_classifier_path', type=str,
+                        default=f'{project_working_directory}/judges/Sprite/sprites_classifier.pth',
+                        help='Path to the multifactor classifier weights.')
+    parser.add_argument('--multifactor_exploration_type', type=str, default='supervised',
+                        choices=['supervised', 'unsupervised'])
+    parser.add_argument('--multifactor_classifier_type', type=str, default='gradient_boost',
+                        choices=['linear', 'decision_tree', 'gradient_boost'])
+    parser.add_argument('--multifactor_dci_classifier_type', type=str, default='gradient_boost',
+                        choices=['linear', 'decision_tree', 'gradient_boost'])
+
     parser.add_argument('--prior-sampling', default=True, action=argparse.BooleanOptionalAction)
 
     return parser

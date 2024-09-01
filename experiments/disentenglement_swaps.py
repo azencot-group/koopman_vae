@@ -9,7 +9,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from input_parser.basic_input_parser import define_basic_args
 from model import KoopmanVAE
-from classifier import classifier_Sprite_all
+from two_factor_classifier import classifier_Sprite_all
 from utils.general_utils import reorder, imshow_seqeunce, calculate_metrics
 from datamodule.sprite_datamodule import SpriteDataModule
 from utils.koopman_utils import swap
@@ -62,7 +62,7 @@ if __name__ == '__main__':
 
     # Create and load the classifier.
     classifier = classifier_Sprite_all(args)
-    loaded_dict = torch.load(args.classifier_path)
+    loaded_dict = torch.load(args.two_factor_classifier_path)
     classifier.load_state_dict(loaded_dict['state_dict'])
     classifier.cuda().eval()
 

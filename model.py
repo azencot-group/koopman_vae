@@ -5,10 +5,14 @@ import torch.nn as nn
 import numpy as np
 import lightning as L
 
-from classifier import classifier_Sprite_all
+from multifactor_classifier import MultifactorSpritesClassifier
+from two_factor_classifier import classifier_Sprite_all
 from utils.general_utils import reorder, t_to_np, calculate_metrics, dataclass_to_dict, init_weights, ModelMetrics, \
-    ModelSubMetrics
+    ModelSubMetrics, load_data_for_explore_and_test, intervention_based_metrics, consistency_metrics, \
+    predictor_based_metrics
+from lightning.fabric.utilities import rank_zero_only
 from utils.koopman_utils import get_unique_num, static_dynamic_split, get_sorted_indices
+from multifactor_metrics.latent_space_automatic_explorer import extract_latent_code, get_mappings
 from loss import ModelLoss
 
 
@@ -202,11 +206,9 @@ class KoopmanLayer(nn.Module):
     def is_matrix_singular(self):
         return self._is_matrix_singular
 
-
     @is_matrix_singular.setter
     def is_matrix_singular(self, is_matrix_singular):
         self._is_matrix_singular = is_matrix_singular
-
 
     def forward(self, Z):
         # Z is in b * t x c x 1 x 1
@@ -368,25 +370,42 @@ class KoopmanVAE(L.LightningModule):
         self.epochs = args.epochs
         self.lr = args.lr
         self.batch_size = args.batch_size
+        self.dataset_dir_path = args.dataset_path
 
-        # The classifier. It is "excluded" from the model since we don't want to learn it.
-        self.classifier = classifier_Sprite_all(args)
-        loaded_dict = torch.load(args.classifier_path)
-        self.classifier.load_state_dict(loaded_dict['state_dict'])
-        self.exclude_classifier_from_model()
+        # The two factor classifier.
+        self.two_factor_classifier = classifier_Sprite_all(args)
+        loaded_dict = torch.load(args.two_factor_classifier_path)
+        self.two_factor_classifier.load_state_dict(loaded_dict['state_dict'])
+
+        # Exclude from the model since we don't want to learn it.
+        self.exclude_classifier_from_model(self.two_factor_classifier)
+
+        # The multifactor classifier.
+        self.multifactor_classifier = MultifactorSpritesClassifier(args)
+        loaded_dict = torch.load(args.multifactor_classifier_path)
+        self.multifactor_classifier.load_state_dict(loaded_dict['state_dict'])
+
+        # Exclude from the model since we don't want to learn it.
+        self.exclude_classifier_from_model(self.multifactor_classifier)
 
         # Whether the evaluation is by prior sampling.
         self.prior_sampling = args.prior_sampling
 
+        # Multifactor exploration types and classifiers.
+        self.multifactor_exploration_type = args.multifactor_exploration_type
+        self.multifactor_classifier_type = args.multifactor_classifier_type
+        self.multifactor_dci_classifier_type = args.multifactor_dci_classifier_type
+
         # Init the model's weights.
         self.apply(init_weights)
 
-    def exclude_classifier_from_model(self):
-        # Insert it to evaluation mode.
-        self.classifier.eval()
+    @staticmethod
+    def exclude_classifier_from_model(classifier: torch.nn.Module) -> None:
+        # Insert the classifier to evaluation mode.
+        classifier.eval()
 
         # Mark that its parameters don't need gradient.
-        for param in self.classifier.parameters():
+        for param in classifier.parameters():
             param.requires_grad = False
 
     def configure_optimizers(self):
@@ -504,7 +523,8 @@ class KoopmanVAE(L.LightningModule):
 
     def calculate_val_metrics_and_log(self, fixed: str):
         # Calculate the metrics.
-        metrics, sub_metrics = calculate_metrics(self, self.classifier, self.trainer.val_dataloaders, fixed=fixed)
+        metrics, sub_metrics = calculate_metrics(self, self.two_factor_classifier, self.trainer.val_dataloaders,
+                                                 fixed=fixed)
         if metrics is None:
             # Stop the training process if in the middle.
             if self.trainer is not None:
@@ -523,12 +543,37 @@ class KoopmanVAE(L.LightningModule):
         # Log the calculated purities.
         self.log_purity(metrics, sub_metrics, fixed=fixed)
 
+    @rank_zero_only
+    def calculate_multifactor_metrics_and_log(self):
+        # Load the data for the exploration and the test.
+        x, labels, val_loader = load_data_for_explore_and_test(self.device, self.dataset_dir_path)
+
+        # Extract the latent codes from the model and check the output.
+        ZL = extract_latent_code(self, x)
+        if ZL is None:
+            self.trainer.should_stop = True
+            return
+
+        # Get the mappings of the labels to subset of indices.
+        map_label_to_idx = get_mappings(ZL, labels, self.multifactor_exploration_type, self.multifactor_classifier_type)
+
+        # Calculate the metrics and log them.
+        intervention_based_metrics(self, self.multifactor_classifier, val_loader, map_label_to_idx,
+                                   self.multifactor_classifier.LABEL_TO_NAME_DICT, self.logger.experiment)
+        consistency_metrics(self, self.multifactor_classifier, val_loader, map_label_to_idx,
+                            self.multifactor_classifier.LABEL_TO_NAME_DICT, self.logger.experiment)
+        predictor_based_metrics(ZL, labels, map_label_to_idx, self.multifactor_classifier.LABEL_TO_NAME_DICT,
+                                self.multifactor_dci_classifier_type, self.logger.experiment)
+
     def on_validation_epoch_end(self) -> None:
         # Calculate and log the fixed content metrics.
         self.calculate_val_metrics_and_log(fixed="content")
 
         # Calculate and log the fixed action metrics.
         self.calculate_val_metrics_and_log(fixed="action")
+
+        # Calculate and log the multifactor metrics.
+        self.calculate_multifactor_metrics_and_log()
 
     def forward_fixed_element_for_classification_prior_sampled(self, x, fixed_content, pick_type='norm',
                                                                static_size=None):
@@ -688,6 +733,120 @@ class KoopmanVAE(L.LightningModule):
 
         return self.forward_fixed_element_for_classification_skd_sampled(x, fixed_content=False,
                                                                          static_size=static_size)
+
+    def forward_swap_specific_features_for_classification(self, target_indexes, X, labels, fix=False, pick_type='real',
+                                                          duplicate=False, run=None, filename="", label_name=''):
+        # Create a list of the complement indices.
+        compl_indexes = [i for i in range(self.k_dim) if i not in target_indexes]
+
+        # ----- X.shape: b x t x c x w x h ------
+        # Get the posterior.
+        _, _, z_post = self.encode_and_sample_post(X)
+
+        # Pass the posterior through the Koopman module and the Dropout layer.
+        Z2, Ct = self.koopman_layer(z_post)
+        if Ct is None:
+            # Stop the training process if in the middle.
+            if self.trainer is not None:
+                self.trainer.should_stop = True
+
+            return None, None
+
+        z_original_shape = z_post.shape
+
+        # swap a single pair in batch
+        bsz, fsz = X.shape[0:2]
+
+        # swap contents of samples in indices
+        z_post = t_to_np(z_post.reshape(bsz, fsz, -1))
+        C = t_to_np(Ct)
+
+        # eig
+        D, V = np.linalg.eig(C)
+        U = np.linalg.inv(V)
+        z_orig_projected = z_post @ V
+
+        # Shuffle the batch
+        perm_indices = np.random.permutation(len(z_orig_projected))
+        z_other_projected = z_orig_projected[perm_indices]
+        labels_permuted = labels[perm_indices]
+
+        Zp2 = copy.deepcopy(z_orig_projected)
+
+        # swap static info
+        if fix:
+            Zp2[:, :, compl_indexes] = z_other_projected[:, :, compl_indexes]
+        else:
+            Zp2[:, :, target_indexes] = z_other_projected[:, :, target_indexes]
+        Z2 = np.real(Zp2 @ U)
+
+        # Reconstruct the swapped X.
+        recon_x_swapped = self.decoder(torch.from_numpy(Z2).to(self.device))
+
+        # Reconstruct the original X.
+        z_post = torch.from_numpy(z_post).to(self.device)
+        recon_x = self.decoder(z_post.reshape(z_original_shape))
+
+        return recon_x_swapped, recon_x, labels_permuted
+
+    def forward_sample_specific_features_for_classification(self, target_indexes, X, fix=False, pick_type='real',
+                                                            duplicate=False, run=None, filename="", label_name=""):
+        # Create a list of the complement indices.
+        compl_indexes = [i for i in range(self.k_dim) if i not in target_indexes]
+
+        # ----- X.shape: b x t x c x w x h ------
+        # Get the posterior.
+        _, _, z_post = self.encode_and_sample_post(X)
+
+        # Pass the posterior through the Koopman module and the Dropout layer.
+        Z2, Ct = self.koopman_layer(z_post)
+        if Ct is None:
+            # Stop the training process if in the middle.
+            if self.trainer is not None:
+                self.trainer.should_stop = True
+
+            return None, None
+
+        z_original_shape = z_post.shape
+
+        # swap a single pair in batch
+        bsz, fsz = X.shape[0:2]
+
+        # swap contents of samples in indices
+        z_post = t_to_np(z_post.reshape(bsz, fsz, -1))
+        C = t_to_np(Ct)
+
+        # eig
+        D, V = np.linalg.eig(C)
+        U = np.linalg.inv(V)
+
+        # Sample Z from the prior distribution.
+        _, _, z_prior = self.sample_z(bsz, random_sampling=self.training)
+
+        # Convert the sampled to ndarray.
+        z_sampled = t_to_np(z_prior)
+
+        # Project the original and prior on the eigenvectors plane.
+        z_orig_projected = z_post @ V
+        z_sampled_projected = z_sampled @ V
+
+        Zp2 = copy.deepcopy(z_orig_projected)
+
+        # swap static info
+        if fix:
+            Zp2[:, :, compl_indexes] = z_sampled_projected[:, :, compl_indexes]
+        else:
+            Zp2[:, :, target_indexes] = z_sampled_projected[:, :, target_indexes]
+        Z2 = np.real(Zp2 @ U)
+
+        # Reconstruct the swapped X.
+        recon_x_sampled = self.decoder(torch.from_numpy(Z2).to(self.device))
+
+        # Reconstruct the original X.
+        z_post = torch.from_numpy(z_post).to(self.device)
+        recon_x = self.decoder(z_post.reshape(z_original_shape))
+
+        return recon_x_sampled, recon_x
 
     def loss(self, x, outputs, batch_size):
         # Unpack the outputs.
