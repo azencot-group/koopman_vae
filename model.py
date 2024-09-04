@@ -8,11 +8,8 @@ import lightning as L
 from multifactor_classifier import MultifactorSpritesClassifier
 from two_factor_classifier import classifier_Sprite_all
 from utils.general_utils import reorder, t_to_np, calculate_metrics, dataclass_to_dict, init_weights, ModelMetrics, \
-    ModelSubMetrics, load_data_for_explore_and_test, intervention_based_metrics, consistency_metrics, \
-    predictor_based_metrics
-from lightning.fabric.utilities import rank_zero_only
+    ModelSubMetrics
 from utils.koopman_utils import get_unique_num, static_dynamic_split, get_sorted_indices
-from multifactor_metrics.latent_space_automatic_explorer import extract_latent_code, get_mappings
 from loss import ModelLoss
 
 
@@ -543,37 +540,12 @@ class KoopmanVAE(L.LightningModule):
         # Log the calculated purities.
         self.log_purity(metrics, sub_metrics, fixed=fixed)
 
-    @rank_zero_only
-    def calculate_multifactor_metrics_and_log(self):
-        # Load the data for the exploration and the test.
-        x, labels, val_loader = load_data_for_explore_and_test(self.device, self.dataset_dir_path)
-
-        # Extract the latent codes from the model and check the output.
-        ZL = extract_latent_code(self, x)
-        if ZL is None:
-            self.trainer.should_stop = True
-            return
-
-        # Get the mappings of the labels to subset of indices.
-        map_label_to_idx = get_mappings(ZL, labels, self.multifactor_exploration_type, self.multifactor_classifier_type)
-
-        # Calculate the metrics and log them.
-        intervention_based_metrics(self, self.multifactor_classifier, val_loader, map_label_to_idx,
-                                   self.multifactor_classifier.LABEL_TO_NAME_DICT, self.logger.experiment)
-        consistency_metrics(self, self.multifactor_classifier, val_loader, map_label_to_idx,
-                            self.multifactor_classifier.LABEL_TO_NAME_DICT, self.logger.experiment)
-        predictor_based_metrics(ZL, labels, map_label_to_idx, self.multifactor_classifier.LABEL_TO_NAME_DICT,
-                                self.multifactor_dci_classifier_type, self.logger.experiment)
-
     def on_validation_epoch_end(self) -> None:
         # Calculate and log the fixed content metrics.
         self.calculate_val_metrics_and_log(fixed="content")
 
         # Calculate and log the fixed action metrics.
         self.calculate_val_metrics_and_log(fixed="action")
-
-        # Calculate and log the multifactor metrics.
-        self.calculate_multifactor_metrics_and_log()
 
     def forward_fixed_element_for_classification_prior_sampled(self, x, fixed_content, pick_type='norm',
                                                                static_size=None):
