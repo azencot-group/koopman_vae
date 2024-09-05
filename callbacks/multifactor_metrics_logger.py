@@ -5,7 +5,6 @@ from utils.koopman_utils import intervention_based_metrics, consistency_metrics,
     predictor_based_metrics
 from utils.general_utils import load_data_for_explore_and_test
 
-
 from model import KoopmanVAE
 
 
@@ -13,6 +12,7 @@ class MultifactorMetricsLogger(Callback):
     """
     Calculate and log the Multi-factor metrics.
     """
+
     def __init__(self, should_log_files: bool = False):
         super().__init__()
 
@@ -36,8 +36,12 @@ class MultifactorMetricsLogger(Callback):
 
         # Calculate the metrics and log them.
         intervention_based_metrics(model, model.multifactor_classifier, val_loader, map_label_to_idx,
-                                   model.multifactor_classifier.LABEL_TO_NAME_DICT, model.logger.experiment)
+                                   model.multifactor_classifier.LABEL_TO_NAME_DICT,
+                                   verbose=False,
+                                   should_log_files=self.should_log_files)
         consistency_metrics(model, model.multifactor_classifier, val_loader, map_label_to_idx,
-                            model.multifactor_classifier.LABEL_TO_NAME_DICT, model.logger.experiment)
-        predictor_based_metrics(ZL, labels, map_label_to_idx, model.multifactor_classifier.LABEL_TO_NAME_DICT,
-                                model.multifactor_dci_classifier_type, model.logger.experiment)
+                            model.multifactor_classifier.LABEL_TO_NAME_DICT, verbose=False,
+                            should_log_files=self.should_log_files)
+        predictor_based_metrics(model, ZL, labels, map_label_to_idx, model.multifactor_classifier.LABEL_TO_NAME_DICT,
+                                model.multifactor_dci_classifier_type, verbose=False,
+                                should_log_files=self.should_log_files)

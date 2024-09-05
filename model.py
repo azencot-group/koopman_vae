@@ -707,7 +707,7 @@ class KoopmanVAE(L.LightningModule):
                                                                          static_size=static_size)
 
     def forward_swap_specific_features_for_classification(self, target_indexes, X, labels, fix=False, pick_type='real',
-                                                          duplicate=False, run=None, filename="", label_name=''):
+                                                          duplicate=False, filename="", label_name=''):
         # Create a list of the complement indices.
         compl_indexes = [i for i in range(self.k_dim) if i not in target_indexes]
 
@@ -762,7 +762,7 @@ class KoopmanVAE(L.LightningModule):
         return recon_x_swapped, recon_x, labels_permuted
 
     def forward_sample_specific_features_for_classification(self, target_indexes, X, fix=False, pick_type='real',
-                                                            duplicate=False, run=None, filename="", label_name=""):
+                                                            duplicate=False, filename="", label_name=""):
         # Create a list of the complement indices.
         compl_indexes = [i for i in range(self.k_dim) if i not in target_indexes]
 

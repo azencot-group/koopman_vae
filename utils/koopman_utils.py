@@ -13,6 +13,8 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier
 
+from model import KoopmanVAE
+
 # Add the parent directory to the Python path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -215,7 +217,8 @@ def swap_by_index(model, X, Z, C, indices, Sev_idx, Dev_idx, plot=False):
 
     return S1d2s, S2d1s, Z1d2s, Z2d1s
 
-def check_cls_specific_indexes(model, classifier, test_loader, run, run_type, target_indexes, fix=False, swap=False,
+
+def check_cls_specific_indexes(model, classifier, test_loader, target_indexes, fix=False, swap=False,
                                label_name=""):
     for epoch in range(1):
         # print("Epoch", epoch)
@@ -232,14 +235,13 @@ def check_cls_specific_indexes(model, classifier, test_loader, run, run_type, ta
                 # @todo implement function for swapping features in model
                 recon_x_sample, recon_x, _ = model.forward_swap_specific_features_for_classification(target_indexes, x,
                                                                                                      label_A,
-                                                                                                     fix=fix, run=run,
+                                                                                                     fix=fix,
                                                                                                      filename="swap intervention",
                                                                                                      label_name=label_name)
             else:
                 # @todo implement function for sampling features in model
                 recon_x_sample, recon_x = model.forward_sample_specific_features_for_classification(target_indexes,
                                                                                                     x, fix=fix,
-                                                                                                    run=run,
                                                                                                     filename="generation intervention",
                                                                                                     label_name=label_name)
 
@@ -316,7 +318,8 @@ def check_cls_specific_indexes(model, classifier, test_loader, run, run_type, ta
 
     return action_Acc, skin_Acc, pant_Acc, top_Acc, hair_Acc
 
-def check_cls_for_consistency_swap(model, classifier, test_loader, run, run_type, target_indexes, fix=False, label_name=""):
+
+def check_cls_for_consistency_swap(model, classifier, test_loader, target_indexes, fix=False, label_name=""):
     for epoch in range(1):
         model.eval()
         mean_acc1_sample, mean_acc2_sample, mean_acc3_sample, mean_acc4_sample = 0, 0, 0, 0
@@ -326,14 +329,13 @@ def check_cls_for_consistency_swap(model, classifier, test_loader, run, run_type
             x, label_A, label_D = x.cuda(), label_A.cuda(), label_D.cuda()
             T = x.size(dim=1)
 
-
             # Get the permuted labels
             # @todo implement function for swapping features in model and return the permuted order of labels
-            recon_x_sample, recon_x, label_A_perm = model.forward_swap_specific_features_for_classification(target_indexes, x,
-                                                                                                label_A, fix=fix, run=run,
-                                                                                                filename="swap consistency",
-                                                                                                label_name=label_name)
-
+            recon_x_sample, recon_x, label_A_perm = model.forward_swap_specific_features_for_classification(
+                target_indexes, x,
+                label_A, fix=fix,
+                filename="swap consistency",
+                label_name=label_name)
 
             with torch.no_grad():
                 acc1_frames, acc2_frames, acc3_frames, acc4_frames = [], [], [], []
@@ -346,51 +348,65 @@ def check_cls_for_consistency_swap(model, classifier, test_loader, run, run_type
                     # if the feature in label name is fixed, compare it to the original label. compare the rest to the
                     # labels of the swapped example (with the label from the permuted indices)
 
-                    acc1_frame = (np.argmax(torch.stack(pred_skin2).permute(1, 0, 2).reshape(-1, 6).cpu(), axis=1).numpy()
-                                  == np.argmax(label_A[:, 0].cpu().numpy(), axis=1).repeat(8)).mean() \
+                    acc1_frame = (
+                            np.argmax(torch.stack(pred_skin2).permute(1, 0, 2).reshape(-1, 6).cpu(), axis=1).numpy()
+                            == np.argmax(label_A[:, 0].cpu().numpy(), axis=1).repeat(8)).mean() \
                         if label_name == "skin" else \
                         (np.argmax(torch.stack(pred_skin2).permute(1, 0, 2).reshape(-1, 6).cpu(), axis=1).numpy()
                          == np.argmax(label_A_perm[:, 0].cpu().numpy(), axis=1).repeat(8)).mean()
 
-                    acc2_frame = (np.argmax(torch.stack(pred_top2).permute(1, 0, 2).reshape(-1, 6).cpu(), axis=1).numpy()
-                                  == np.argmax(label_A[:, 1].cpu().numpy(), axis=1).repeat(8)).mean() \
-                        if label_name == "top" else (np.argmax(torch.stack(pred_top2).permute(1, 0, 2).reshape(-1, 6).cpu(),
-                               axis=1).numpy() == np.argmax(label_A_perm[:, 1].cpu().numpy(), axis=1).repeat(8)).mean()
+                    acc2_frame = (
+                            np.argmax(torch.stack(pred_top2).permute(1, 0, 2).reshape(-1, 6).cpu(), axis=1).numpy()
+                            == np.argmax(label_A[:, 1].cpu().numpy(), axis=1).repeat(8)).mean() \
+                        if label_name == "top" else (
+                            np.argmax(torch.stack(pred_top2).permute(1, 0, 2).reshape(-1, 6).cpu(),
+                                      axis=1).numpy() == np.argmax(label_A_perm[:, 1].cpu().numpy(), axis=1).repeat(
+                        8)).mean()
 
                     acc3_frame = (np.argmax(torch.stack(pred_pant2).permute(1, 0, 2).reshape(-1, 6).cpu(),
-                               axis=1).numpy() == np.argmax(label_A[:, 2].cpu().numpy(), axis=1).repeat(8)).mean() \
-                        if label_name == "pant" else (np.argmax(torch.stack(pred_pant2).permute(1, 0, 2).reshape(-1, 6).cpu(),
-                               axis=1).numpy() == np.argmax(label_A_perm[:, 2].cpu().numpy(), axis=1).repeat(8)).mean()
+                                            axis=1).numpy() == np.argmax(label_A[:, 2].cpu().numpy(), axis=1).repeat(
+                        8)).mean() \
+                        if label_name == "pant" else (
+                            np.argmax(torch.stack(pred_pant2).permute(1, 0, 2).reshape(-1, 6).cpu(),
+                                      axis=1).numpy() == np.argmax(label_A_perm[:, 2].cpu().numpy(), axis=1).repeat(
+                        8)).mean()
 
                     acc4_frame = (np.argmax(torch.stack(pred_hair2).permute(1, 0, 2).reshape(-1, 6).cpu(),
-                               axis=1).numpy() == np.argmax(label_A[:, 3].cpu().numpy(), axis=1).repeat(8)).mean() \
-                        if label_name == "hair" else (np.argmax(torch.stack(pred_hair2).permute(1, 0, 2).reshape(-1, 6).cpu(),
-                               axis=1).numpy() == np.argmax(label_A_perm[:, 3].cpu().numpy(), axis=1).repeat(8)).mean()
+                                            axis=1).numpy() == np.argmax(label_A[:, 3].cpu().numpy(), axis=1).repeat(
+                        8)).mean() \
+                        if label_name == "hair" else (
+                            np.argmax(torch.stack(pred_hair2).permute(1, 0, 2).reshape(-1, 6).cpu(),
+                                      axis=1).numpy() == np.argmax(label_A_perm[:, 3].cpu().numpy(), axis=1).repeat(
+                        8)).mean()
 
                 else:
-                    acc1_frame = (np.argmax(torch.stack(pred_skin2).permute(1, 0, 2).reshape(-1, 6).cpu(), axis=1).numpy()
-                                  == np.argmax(label_A_perm[:, 0].cpu().numpy(),axis=1).repeat(8)).mean() \
+                    acc1_frame = (
+                            np.argmax(torch.stack(pred_skin2).permute(1, 0, 2).reshape(-1, 6).cpu(), axis=1).numpy()
+                            == np.argmax(label_A_perm[:, 0].cpu().numpy(), axis=1).repeat(8)).mean() \
                         if label_name == "skin" else (
-                                np.argmax(torch.stack(pred_skin2).permute(1, 0, 2).reshape(-1, 6).cpu(), axis=1).numpy()
-                                == np.argmax(label_A[:, 0].cpu().numpy(), axis=1).repeat(8)).mean()
+                            np.argmax(torch.stack(pred_skin2).permute(1, 0, 2).reshape(-1, 6).cpu(), axis=1).numpy()
+                            == np.argmax(label_A[:, 0].cpu().numpy(), axis=1).repeat(8)).mean()
 
-                    acc2_frame = (np.argmax(torch.stack(pred_top2).permute(1, 0, 2).reshape(-1, 6).cpu(), axis=1).numpy()
-                                  == np.argmax(label_A_perm[:, 1].cpu().numpy(), axis=1).repeat(8)).mean() \
+                    acc2_frame = (
+                            np.argmax(torch.stack(pred_top2).permute(1, 0, 2).reshape(-1, 6).cpu(), axis=1).numpy()
+                            == np.argmax(label_A_perm[:, 1].cpu().numpy(), axis=1).repeat(8)).mean() \
                         if label_name == "top" else (
-                                np.argmax(torch.stack(pred_top2).permute(1, 0, 2).reshape(-1, 6).cpu(), axis=1).numpy()
-                                == np.argmax(label_A[:, 1].cpu().numpy(), axis=1).repeat(8)).mean()
+                            np.argmax(torch.stack(pred_top2).permute(1, 0, 2).reshape(-1, 6).cpu(), axis=1).numpy()
+                            == np.argmax(label_A[:, 1].cpu().numpy(), axis=1).repeat(8)).mean()
 
-                    acc3_frame = (np.argmax(torch.stack(pred_pant2).permute(1, 0, 2).reshape(-1, 6).cpu(), axis=1).numpy()
-                                  == np.argmax(label_A_perm[:, 2].cpu().numpy(), axis=1).repeat(8)).mean() \
+                    acc3_frame = (
+                            np.argmax(torch.stack(pred_pant2).permute(1, 0, 2).reshape(-1, 6).cpu(), axis=1).numpy()
+                            == np.argmax(label_A_perm[:, 2].cpu().numpy(), axis=1).repeat(8)).mean() \
                         if label_name == "pant" else (
-                                np.argmax(torch.stack(pred_pant2).permute(1, 0, 2).reshape(-1, 6).cpu(), axis=1).numpy()
-                                == np.argmax(label_A[:, 2].cpu().numpy(), axis=1).repeat(8)).mean()
+                            np.argmax(torch.stack(pred_pant2).permute(1, 0, 2).reshape(-1, 6).cpu(), axis=1).numpy()
+                            == np.argmax(label_A[:, 2].cpu().numpy(), axis=1).repeat(8)).mean()
 
-                    acc4_frame = (np.argmax(torch.stack(pred_hair2).permute(1, 0, 2).reshape(-1, 6).cpu(), axis=1).numpy()
-                                  == np.argmax(label_A_perm[:, 3].cpu().numpy(), axis=1).repeat(8)).mean() \
+                    acc4_frame = (
+                            np.argmax(torch.stack(pred_hair2).permute(1, 0, 2).reshape(-1, 6).cpu(), axis=1).numpy()
+                            == np.argmax(label_A_perm[:, 3].cpu().numpy(), axis=1).repeat(8)).mean() \
                         if label_name == "hair" else (
-                                np.argmax(torch.stack(pred_hair2).permute(1, 0, 2).reshape(-1, 6).cpu(), axis=1).numpy()
-                                == np.argmax(label_A[:, 3].cpu().numpy(), axis=1).repeat(8)).mean()
+                            np.argmax(torch.stack(pred_hair2).permute(1, 0, 2).reshape(-1, 6).cpu(), axis=1).numpy()
+                            == np.argmax(label_A[:, 3].cpu().numpy(), axis=1).repeat(8)).mean()
 
                 # Append frame accuracies
                 acc1_frames.append(acc1_frame)
@@ -404,12 +420,10 @@ def check_cls_for_consistency_swap(model, classifier, test_loader, run, run_type
                 mean_acc3_sample += np.mean(acc3_frames)
                 mean_acc4_sample += np.mean(acc4_frames)
 
-
         # Print original accuracies
         # print('Accuracies of frames: skin_Acc: {:.2f}% pant_Acc: {:.2f}% top_Acc: {:.2f}% hair_Acc: {:.2f}% '.format(
         #     mean_acc1_sample / len(test_loader) * 100, mean_acc2_sample / len(test_loader) * 100,
         #     mean_acc3_sample / len(test_loader) * 100, mean_acc4_sample / len(test_loader) * 100))
-
 
     # Calculate overall accuracies
     skin_Acc = mean_acc1_sample / len(test_loader) * 100
@@ -420,7 +434,8 @@ def check_cls_for_consistency_swap(model, classifier, test_loader, run, run_type
     # Return both original and permuted accuracies
     return skin_Acc, top_Acc, pant_Acc, hair_Acc
 
-def check_cls_for_consistency_gen(model, classifier, test_loader, run, run_type, target_indexes, fix=False, swap=False, label_name=""):
+
+def check_cls_for_consistency_gen(model, classifier, test_loader, target_indexes, fix=False, swap=False, label_name=""):
     for epoch in range(2):
         model.eval()
         mean_acc1_sample, mean_acc2_sample, mean_acc3_sample, mean_acc4_sample = 0, 0, 0, 0
@@ -433,9 +448,9 @@ def check_cls_for_consistency_gen(model, classifier, test_loader, run, run_type,
             x, label_A, label_D = x.cuda(), label_A.cuda(), label_D.cuda()
 
             recon_x_sample, recon_x = model.forward_sample_specific_features_for_classification(target_indexes, x,
-                                                                                       fix=fix, run=run,
-                                                                                       filename="generation consistency",
-                                                                                        label_name=label_name)
+                                                                                                fix=fix,
+                                                                                                filename="generation consistency",
+                                                                                                label_name=label_name)
 
             with torch.no_grad():
                 _, pred_skin2, pred_top2, pred_pant2, pred_hair2 = classifier(recon_x_sample)
@@ -496,8 +511,9 @@ def check_cls_for_consistency_gen(model, classifier, test_loader, run, run_type,
         return global_skin_Acc, global_top_Acc, global_pant_Acc, global_hair_Acc, \
             local_skin_Acc, local_top_Acc, local_pant_Acc, local_hair_Acc
 
-def intervention_based_metrics(model, classifier, test_loader, map_label_to_idx, label_to_name_dict, run=None,
-                               verbose=False):
+
+def intervention_based_metrics(model: KoopmanVAE, classifier, test_loader, map_label_to_idx, label_to_name_dict,
+                               verbose=False, should_log_files=False):
     """
        Computation of intervention based metrics.
        Evaluates accuracy of each feature after fixing the feature from the row and
@@ -528,19 +544,16 @@ def intervention_based_metrics(model, classifier, test_loader, map_label_to_idx,
     for label in map_label_to_idx:
         # print(f"Label {label_to_name_dict[label]}: {map_label_to_idx[label]}")
         action_Acc, skin_Acc, pant_Acc, top_Acc, hair_Acc = check_cls_specific_indexes(model, classifier, test_loader,
-                                                                                       run, 'action',
                                                                                        map_label_to_idx[label],
                                                                                        fix=True,
                                                                                        label_name=label_to_name_dict[
                                                                                            label])
         gen_df.loc[label_to_name_dict[label]] = [action_Acc, skin_Acc, pant_Acc, top_Acc, hair_Acc]
 
-    if verbose:
-        print("generation swap")
-
     table = tabulate(gen_df, headers='keys', tablefmt='psql')
 
     if verbose:
+        print("generation swap")
         print(table)
 
     # calculate final score
@@ -562,14 +575,18 @@ def intervention_based_metrics(model, classifier, test_loader, map_label_to_idx,
     if verbose:
         print(f"Final score of generation swap: {100 - final_score}")
 
-    if run is not None:
-        run["metrics/intervention/generation"].append(value=File.from_content(table, extension='txt'))
-        run["metrics/intervention/generation_overall_score"].append(100 - final_score)
+    if model.trainer is not None:
+        if should_log_files:
+            # save dataframe as csv
+            csv_buffer = StringIO()
+            gen_df.to_csv(csv_buffer, index=False)
+            model.trainer.logger.experiment['dataframes/intervention/generation_swap'].append(
+                File.from_stream(csv_buffer, extension='csv'))
 
-        # save dataframe as csv
-        csv_buffer = StringIO()
-        gen_df.to_csv(csv_buffer, index=False)
-        run["dataframes/intervention/generation_swap"].append(File.from_stream(csv_buffer, extension='csv'))
+            model.trainer.logger.experiment['metrics/intervention/generation'].append(
+                File.from_content(table, extension='txt'))
+
+        model.log('metrics/intervention/generation_overall_score', 100 - final_score)
 
     #  --- Swap  evaluation !!! ---
 
@@ -579,7 +596,6 @@ def intervention_based_metrics(model, classifier, test_loader, map_label_to_idx,
     for label in map_label_to_idx:
         # print(f"Label {label_to_name_dict[label]}: {map_label_to_idx[label]}")
         action_Acc, skin_Acc, pant_Acc, top_Acc, hair_Acc = check_cls_specific_indexes(model, classifier, test_loader,
-                                                                                       run, 'action',
                                                                                        map_label_to_idx[label],
                                                                                        fix=True, swap=True,
                                                                                        label_name=label_to_name_dict[
@@ -613,16 +629,22 @@ def intervention_based_metrics(model, classifier, test_loader, map_label_to_idx,
     if verbose:
         print(f"Final score with same weight in and out of diagonal: {100 - final_score}")
 
-    if run is not None:
-        run["metrics/intervention/swap"].append(value=File.from_content(table, extension='txt'))
-        run["metrics/intervention/swap_overall_score"].append(100 - final_score)
+    if model.trainer is not None:
+        if should_log_files:
+            # save dataframe as csv
+            csv_buffer = StringIO()
+            swap_df.to_csv(csv_buffer, index=False)
+            model.trainer.logger.experiment['dataframes/intervention/swap'].append(
+                File.from_stream(csv_buffer, extension='csv'))
 
-        # save dataframe as csv
-        csv_buffer = StringIO()
-        swap_df.to_csv(csv_buffer, index=False)
-        run["dataframes/intervention/swap"].append(File.from_stream(csv_buffer, extension='csv'))
+            model.trainer.logger.experiment['metrics/intervention/swap'].append(
+                File.from_content(table, extension='txt'))
 
-def consistency_metrics(model, classifier, test_loader, map_label_to_idx, label_to_name_dict, run=None):
+        model.log('metrics/intervention/swap_overall_score', 100 - final_score)
+
+
+def consistency_metrics(model, classifier, test_loader, map_label_to_idx, label_to_name_dict, verbose=False,
+                        should_log_files=False):
     """
        Evaluate the consistency between frames in each example
 
@@ -650,7 +672,8 @@ def consistency_metrics(model, classifier, test_loader, map_label_to_idx, label_
 
        """
 
-    print('\n--- start multifactor CONSISTENCY classification --- ')
+    if verbose:
+        print('\n--- start multifactor CONSISTENCY classification --- ')
 
     c_df = pd.DataFrame(columns=['skin', 'top', 'pant', 'hair'],
                         index=['skin', 'top', 'pant', 'hair'])
@@ -661,79 +684,96 @@ def consistency_metrics(model, classifier, test_loader, map_label_to_idx, label_
             continue
         # print(f"Label {label_to_name_dict[label]}: {map_label_to_idx[label]}")
         skin_Acc, top_Acc, pant_Acc, hair_Acc = check_cls_for_consistency_swap(
-                                                model, classifier, test_loader,
-                                                run, 'action',
-                                                map_label_to_idx[label],
-                                                fix=True, label_name=label_to_name_dict[label])
+            model, classifier, test_loader,
+            map_label_to_idx[label],
+            fix=True, label_name=label_to_name_dict[label])
         c_df.loc[label_to_name_dict[label]] = [skin_Acc, top_Acc, pant_Acc, hair_Acc]
 
-    print("consistency swap measure with regular labels")
     table = (tabulate(c_df, headers='keys', tablefmt='psql'))
-    print(table)
+
+    if verbose:
+        print("consistency swap measure with regular labels")
+        print(table)
 
     # overall score of whole table. the absolute value between the values and 100
     swap_consistency_penalty = np.abs(100 - c_df)
     swap_consistency_score = 100 - swap_consistency_penalty.mean().mean()
 
-    if run is not None:
-        run["metrics/consistency/swap_consistency_per_feature"].append(value=File.from_content(table, extension='txt'))
-        run["metrics/consistency/swap_overall_score"].append(swap_consistency_score)
+    if verbose:
         print(f"Consistency swap score: {swap_consistency_score}")
 
-        # save dataframe as csv
-        csv_buffer = StringIO()
-        c_df.to_csv(csv_buffer, index=False)
-        run["dataframes/consistency/swap"].append(File.from_stream(csv_buffer, extension='csv'))
+    if model.trainer is not None:
+        if should_log_files:
+            # save dataframe as csv
+            csv_buffer = StringIO()
+            c_df.to_csv(csv_buffer, index=False)
+            model.trainer.logger.experiment['dataframes/consistency/swap'].append(
+                File.from_stream(csv_buffer, extension='csv'))
+            model.trainer.logger.experiment['metrics/consistency/swap_consistency_per_feature'].append(
+                File.from_content(table, extension='txt'))
 
+        model.log('metrics/consistency/swap_overall_score', swap_consistency_score)
 
     #  --- consistency GENERATION evaluation ---
 
     loc_df = pd.DataFrame(columns=['skin', 'top', 'pant', 'hair'],
-                        index=['skin', 'top', 'pant', 'hair'])
+                          index=['skin', 'top', 'pant', 'hair'])
 
     for label in map_label_to_idx:
         if label == 'action':
             continue
         # print(f"Label {label_to_name_dict[label]}: {map_label_to_idx[label]}")
         glo_skin_Acc, glo_top_Acc, glo_pant_Acc, glo_hair_Acc, loc_skin_Acc, loc_top_Acc, loc_pant_Acc, loc_hair_Acc = \
-                                                check_cls_for_consistency_gen(model, classifier, test_loader,
-                                                                              run, 'action',
-                                                                              map_label_to_idx[label],
-                                                                              fix=True, label_name=label_to_name_dict[label])
+            check_cls_for_consistency_gen(model, classifier, test_loader,
+                                          map_label_to_idx[label],
+                                          fix=True, label_name=label_to_name_dict[label])
         c_df.loc[label_to_name_dict[label]] = [glo_skin_Acc, glo_top_Acc, glo_pant_Acc, glo_hair_Acc]
         loc_df.loc[label_to_name_dict[label]] = [loc_skin_Acc, loc_top_Acc, loc_pant_Acc, loc_hair_Acc]
 
-    print("consistency global generation measure")
     table1 = (tabulate(c_df, headers='keys', tablefmt='psql'))
-    print(table1)
+
+    if verbose:
+        print("consistency global generation measure")
+        print(table1)
 
     gen_consistency_penalty = np.abs(100 - c_df)
     global_consistency_score = 100 - gen_consistency_penalty.mean().mean()
-    print(f"Consistency global generation score: {global_consistency_score}")
 
+    if verbose:
+        print(f"Consistency global generation score: {global_consistency_score}")
 
-    print("consistency local generation measure")
     table2 = (tabulate(loc_df, headers='keys', tablefmt='psql'))
-    print(table2)
+
+    if verbose:
+        print("consistency local generation measure")
+        print(table2)
 
     gen_consistency_penalty = np.abs(100 - loc_df)
     local_consistency_score = 100 - gen_consistency_penalty.mean().mean()
-    print(f"Consistency local generation score: {local_consistency_score}")
 
-    if run is not None:
-        run["metrics/consistency/global_generation_consistency_per_feature"].append(value=File.from_content(table1, extension='txt'))
-        run["metrics/consistency/global_gen_overall_score"].append(global_consistency_score)
-        run["metrics/consistency/local_generation_consistency_per_feature"].append(value=File.from_content(table2, extension='txt'))
-        run["metrics/consistency/local_gen_overall_score"].append(local_consistency_score)
+    if verbose:
+        print(f"Consistency local generation score: {local_consistency_score}")
 
-        # save dataframe as csv
-        csv_buffer = StringIO()
-        c_df.to_csv(csv_buffer, index=False)
-        run["dataframes/consistency/global_gen"].append(File.from_stream(csv_buffer, extension='csv'))
+    if model.trainer is not None:
+        if should_log_files:
+            # save dataframe as csv
+            csv_buffer = StringIO()
+            c_df.to_csv(csv_buffer, index=False)
+            model.trainer.logger.experiment['dataframes/consistency/global_gen'].append(
+                File.from_stream(csv_buffer, extension='csv'))
 
-        csv_buffer = StringIO()
-        loc_df.to_csv(csv_buffer, index=False)
-        run["dataframes/consistency/local_gen"].append(File.from_stream(csv_buffer, extension='csv'))
+            csv_buffer = StringIO()
+            loc_df.to_csv(csv_buffer, index=False)
+            model.trainer.logger.experiment['dataframes/consistency/local_gen'].append(
+                File.from_stream(csv_buffer, extension='csv'))
+
+            model.trainer.logger.experiment['metrics/consistency/global_generation_consistency_per_feature'].append(
+                File.from_content(table1, extension='txt'))
+            model.trainer.logger.experiment['metrics/consistency/local_generation_consistency_per_feature'].append(
+                File.from_content(table2, extension='txt'))
+
+        model.log('metrics/consistency/global_gen_overall_score', global_consistency_score)
+        model.log('metrics/consistency/local_gen_overall_score', local_consistency_score)
 
 
 def compute_importance_gbt(x_train, y_train, x_test, y_test, classifier_type):
@@ -788,7 +828,8 @@ def compute_importance_gbt(x_train, y_train, x_test, y_test, classifier_type):
     return importance_matrix, train_acc, test_acc
 
 
-def predictor_based_metrics(ZL, labels, map_label_to_idx, label_to_name_dict, classifier_type, run=None):
+def predictor_based_metrics(model: KoopmanVAE, ZL, labels, map_label_to_idx, label_to_name_dict, classifier_type,
+                            verbose=False, should_log_files=False):
     """
      This function takes a map between labels (features) and a subset of latent codes corresponding to the label.
       For each label it trains a classifier to predict the label from the latent code.
@@ -803,7 +844,8 @@ def predictor_based_metrics(ZL, labels, map_label_to_idx, label_to_name_dict, cl
     - classifier_type: The type of classifier to use, either 'gradient_boost', 'linear' (Logistic Regression) or 'decision_tree'.
     """
 
-    print('\n--- start multifactor PREDICTOR BASED classification --- ')
+    if verbose:
+        print('\n--- start multifactor PREDICTOR BASED classification --- ')
 
     # split the latent codes to train and test
     Z_train, Z_test, labels_train, labels_test = train_test_split(ZL, labels, test_size=0.2, random_state=42)
@@ -835,8 +877,8 @@ def predictor_based_metrics(ZL, labels, map_label_to_idx, label_to_name_dict, cl
             # compute D_J
             modularity_j += (p * (np.log(p) / np.log(M)))  # get log with base M
 
-        if run is not None:
-            run[f"metrics/predictor/modularity_{label_to_name_dict[label]}"] = modularity_j
+        if model.trainer is not None:
+            model.log(f"metrics/predictor/modularity_{label_to_name_dict[label]}", modularity_j)
 
         modularity_data.append({
             "feature": label_to_name_dict[label],
@@ -853,19 +895,22 @@ def predictor_based_metrics(ZL, labels, map_label_to_idx, label_to_name_dict, cl
 
     modularity_df = pd.DataFrame(modularity_data)
     modularity_table = tabulate(modularity_df, headers='keys', tablefmt='psql')
-    print("modularity score for each feature:")
-    print(modularity_table)
+    if verbose:
+        print("modularity score for each feature:")
+        print(modularity_table)
+        print(f'overall modularity score = {modularity_score}\n')
 
-    print(f'overall modularity score = {modularity_score}\n')
-    if run is not None:
-        run["metrics/predictor/modularity_per_feature"].append(value=File.from_content(modularity_table, extension='txt'))
-        run["metrics/predictor/overall_modularity"].append(modularity_score)
+    if model.trainer is not None:
+        if should_log_files:
+            # save dataframe as csv
+            csv_buffer = StringIO()
+            modularity_df.to_csv(csv_buffer, index=False)
+            model.trainer.logger.experiment['dataframes/predictor/modularity_per_feature'].append(
+                File.from_stream(csv_buffer, extension='csv'))
+            model.trainer.logger.experiment['metrics/predictor/modularity_per_feature'].append(
+                File.from_content(modularity_table, extension='txt'))
 
-        # save dataframe as csv
-        csv_buffer = StringIO()
-        modularity_df.to_csv(csv_buffer, index=False)
-        run["dataframes/predictor/modularity_per_feature"].append(File.from_stream(csv_buffer, extension='csv'))
-
+        model.log('metrics/predictor/overall_modularity', modularity_score)
 
     # --- computation of completeness score ---
     compactness_data = []
@@ -883,8 +928,8 @@ def predictor_based_metrics(ZL, labels, map_label_to_idx, label_to_name_dict, cl
             # compute C_J
             compactness_i += (p * (np.log(p) / np.log(d)))  # get log with base M
 
-        if run is not None:
-            run[f"metrics/predictor/compactness_{label_to_name_dict[label]}"] = compactness_i
+        if model.trainer is not None:
+            model.log(f"metrics/predictor/compactness_{label_to_name_dict[label]}", compactness_i)
 
         compactness_data.append({
             "feature": label_to_name_dict[label],
@@ -896,19 +941,23 @@ def predictor_based_metrics(ZL, labels, map_label_to_idx, label_to_name_dict, cl
 
     compactness_df = pd.DataFrame(compactness_data)
     compactness_table = tabulate(compactness_df, headers='keys', tablefmt='psql')
-    print("compactness score for each feature:")
-    print(compactness_table)
 
-    print(f'overall compactness score = {compactness_score}\n')
+    if verbose:
+        print("compactness score for each feature:")
+        print(compactness_table)
+        print(f'overall compactness score = {compactness_score}\n')
 
-    if run is not None:
-        run["metrics/predictor/compactness_per_feature"].append(value=File.from_content(compactness_table, extension='txt'))
-        run["metrics/predictor/overall_compactness"].append(compactness_score)
+    if model.trainer is not None:
+        if should_log_files:
+            # save dataframe as csv
+            csv_buffer = StringIO()
+            compactness_df.to_csv(csv_buffer, index=False)
+            model.trainer.logger.experiment['dataframes/predictor/compactness_per_feature'].append(
+                File.from_stream(csv_buffer, extension='csv'))
+            model.trainer.logger.experiment['metrics/predictor/compactness_per_feature'].append(
+                File.from_content(compactness_table, extension='txt'))
 
-        # save dataframe as csv
-        csv_buffer = StringIO()
-        compactness_df.to_csv(csv_buffer, index=False)
-        run["dataframes/predictor/compactness_per_feature"].append(File.from_stream(csv_buffer, extension='csv'))
+        model.log('metrics/predictor/overall_compactness', compactness_score)
 
     # --- compute explicitness score ---
     # use losses from classifiers to compute explicitness score
@@ -918,9 +967,9 @@ def predictor_based_metrics(ZL, labels, map_label_to_idx, label_to_name_dict, cl
         test_explicitness_j = test_score[label]
 
         # print(f"explicitness score for feature {label_to_name_dict[label]} = {explicitness_j}")
-        if run is not None:
-            run[f"metrics/predictor/train_explicitness_{label_to_name_dict[label]}"] = train_explicitness_j
-            run[f"metrics/predictor/test_explicitness_{label_to_name_dict[label]}"] = test_explicitness_j
+        if model.trainer is not None:
+            model.log(f"metrics/predictor/train_explicitness_{label_to_name_dict[label]}", train_explicitness_j)
+            model.log(f"metrics/predictor/test_explicitness_{label_to_name_dict[label]}", test_explicitness_j)
 
         explicitness_data.append({
             "feature": label_to_name_dict[label],
@@ -930,17 +979,22 @@ def predictor_based_metrics(ZL, labels, map_label_to_idx, label_to_name_dict, cl
 
     explicitness_df = pd.DataFrame(explicitness_data)
     explicitness_table = tabulate(explicitness_df, headers='keys', tablefmt='psql')
-    print("explicitness score for each feature")
-    print(explicitness_table)
-    print(f'train explicitness score = {np.mean(train_score)}')
-    print(f'test explicitness score = {np.mean(test_score)}\n')
 
-    if run is not None:
-        run["metrics/predictor/explicitness_per_feature:"].append(value=File.from_content(explicitness_table, extension='txt'))
-        run["metrics/predictor/train_explicitness_score"].append(np.mean(train_score))
-        run["metrics/predictor/test_explicitness_score"].append(np.mean(test_score))
+    if verbose:
+        print("explicitness score for each feature")
+        print(explicitness_table)
+        print(f'train explicitness score = {np.mean(train_score)}')
+        print(f'test explicitness score = {np.mean(test_score)}\n')
 
-        # save dataframe as csv
-        csv_buffer = StringIO()
-        explicitness_df.to_csv(csv_buffer, index=False)
-        run["dataframes/predictor/explicitness_per_feature"].append(File.from_stream(csv_buffer, extension='csv'))
+    if model.trainer is not None:
+        if should_log_files:
+            # save dataframe as csv
+            csv_buffer = StringIO()
+            explicitness_df.to_csv(csv_buffer, index=False)
+            model.trainer.logger.experiment['dataframes/predictor/explicitness_per_feature'].append(
+                File.from_stream(csv_buffer, extension='csv'))
+            model.trainer.logger.experiment['metrics/predictor/explicitness_per_feature:'].append(
+                File.from_content(explicitness_table, extension='txt'))
+
+        model.log('metrics/predictor/train_explicitness_score', np.mean(train_score))
+        model.log('metrics/predictor/test_explicitness_score', np.mean(test_score))
