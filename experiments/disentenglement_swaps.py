@@ -20,7 +20,6 @@ def define_args():
     parser = define_basic_args()
 
     parser.add_argument('--model_path', type=str, default=None, help='ckpt directory')
-    parser.add_argument('--model_name', type=str, default=None)
 
     return parser
 
