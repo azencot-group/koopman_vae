@@ -238,7 +238,7 @@ class ModelMetrics:
     H_y: float
 
 
-def calculate_metrics(model: KoopmanVAE,
+def calculate_metrics(model,
                       classifier: nn.Module,
                       val_loader: DataLoader,
                       fixed: str = "content",

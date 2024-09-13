@@ -13,7 +13,10 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier
 
-from model import KoopmanVAE
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from model import KoopmanVAE
 
 # Add the parent directory to the Python path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -512,7 +515,7 @@ def check_cls_for_consistency_gen(model, classifier, test_loader, target_indexes
             local_skin_Acc, local_top_Acc, local_pant_Acc, local_hair_Acc
 
 
-def intervention_based_metrics(model: KoopmanVAE, classifier, test_loader, map_label_to_idx, label_to_name_dict,
+def intervention_based_metrics(model, classifier, test_loader, map_label_to_idx, label_to_name_dict,
                                verbose=False, should_log_files=False):
     """
        Computation of intervention based metrics.
@@ -575,18 +578,22 @@ def intervention_based_metrics(model: KoopmanVAE, classifier, test_loader, map_l
     if verbose:
         print(f"Final score of generation swap: {100 - final_score}")
 
-    if model.trainer is not None:
-        if should_log_files:
-            # save dataframe as csv
-            csv_buffer = StringIO()
-            gen_df.to_csv(csv_buffer, index=False)
-            model.trainer.logger.experiment['dataframes/intervention/generation_swap'].append(
-                File.from_stream(csv_buffer, extension='csv'))
+    try:
+        if model.trainer is not None:
+            if should_log_files:
+                # save dataframe as csv
+                csv_buffer = StringIO()
+                gen_df.to_csv(csv_buffer, index=False)
+                model.trainer.logger.experiment['dataframes/intervention/generation_swap'].append(
+                    File.from_stream(csv_buffer, extension='csv'))
 
-            model.trainer.logger.experiment['metrics/intervention/generation'].append(
-                File.from_content(table, extension='txt'))
+                model.trainer.logger.experiment['metrics/intervention/generation'].append(
+                    File.from_content(table, extension='txt'))
 
-        model.log('metrics/intervention/generation_overall_score', 100 - final_score)
+            model.log('metrics/intervention/generation_overall_score', 100 - final_score)
+
+    except RuntimeError:
+        pass
 
     #  --- Swap  evaluation !!! ---
 
@@ -629,18 +636,22 @@ def intervention_based_metrics(model: KoopmanVAE, classifier, test_loader, map_l
     if verbose:
         print(f"Final score with same weight in and out of diagonal: {100 - final_score}")
 
-    if model.trainer is not None:
-        if should_log_files:
-            # save dataframe as csv
-            csv_buffer = StringIO()
-            swap_df.to_csv(csv_buffer, index=False)
-            model.trainer.logger.experiment['dataframes/intervention/swap'].append(
-                File.from_stream(csv_buffer, extension='csv'))
+    try:
+        if model.trainer is not None:
+            if should_log_files:
+                # save dataframe as csv
+                csv_buffer = StringIO()
+                swap_df.to_csv(csv_buffer, index=False)
+                model.trainer.logger.experiment['dataframes/intervention/swap'].append(
+                    File.from_stream(csv_buffer, extension='csv'))
 
-            model.trainer.logger.experiment['metrics/intervention/swap'].append(
-                File.from_content(table, extension='txt'))
+                model.trainer.logger.experiment['metrics/intervention/swap'].append(
+                    File.from_content(table, extension='txt'))
 
-        model.log('metrics/intervention/swap_overall_score', 100 - final_score)
+            model.log('metrics/intervention/swap_overall_score', 100 - final_score)
+
+    except RuntimeError:
+        pass
 
 
 def consistency_metrics(model, classifier, test_loader, map_label_to_idx, label_to_name_dict, verbose=False,
@@ -702,18 +713,21 @@ def consistency_metrics(model, classifier, test_loader, map_label_to_idx, label_
     if verbose:
         print(f"Consistency swap score: {swap_consistency_score}")
 
-    if model.trainer is not None:
-        if should_log_files:
-            # save dataframe as csv
-            csv_buffer = StringIO()
-            c_df.to_csv(csv_buffer, index=False)
-            model.trainer.logger.experiment['dataframes/consistency/swap'].append(
-                File.from_stream(csv_buffer, extension='csv'))
-            model.trainer.logger.experiment['metrics/consistency/swap_consistency_per_feature'].append(
-                File.from_content(table, extension='txt'))
+    try:
+        if model.trainer is not None:
+            if should_log_files:
+                # save dataframe as csv
+                csv_buffer = StringIO()
+                c_df.to_csv(csv_buffer, index=False)
+                model.trainer.logger.experiment['dataframes/consistency/swap'].append(
+                    File.from_stream(csv_buffer, extension='csv'))
+                model.trainer.logger.experiment['metrics/consistency/swap_consistency_per_feature'].append(
+                    File.from_content(table, extension='txt'))
 
-        model.log('metrics/consistency/swap_overall_score', swap_consistency_score)
+            model.log('metrics/consistency/swap_overall_score', swap_consistency_score)
 
+    except RuntimeError:
+        pass
     #  --- consistency GENERATION evaluation ---
 
     loc_df = pd.DataFrame(columns=['skin', 'top', 'pant', 'hair'],
@@ -754,26 +768,30 @@ def consistency_metrics(model, classifier, test_loader, map_label_to_idx, label_
     if verbose:
         print(f"Consistency local generation score: {local_consistency_score}")
 
-    if model.trainer is not None:
-        if should_log_files:
-            # save dataframe as csv
-            csv_buffer = StringIO()
-            c_df.to_csv(csv_buffer, index=False)
-            model.trainer.logger.experiment['dataframes/consistency/global_gen'].append(
-                File.from_stream(csv_buffer, extension='csv'))
+    try:
+        if model.trainer is not None:
+            if should_log_files:
+                # save dataframe as csv
+                csv_buffer = StringIO()
+                c_df.to_csv(csv_buffer, index=False)
+                model.trainer.logger.experiment['dataframes/consistency/global_gen'].append(
+                    File.from_stream(csv_buffer, extension='csv'))
 
-            csv_buffer = StringIO()
-            loc_df.to_csv(csv_buffer, index=False)
-            model.trainer.logger.experiment['dataframes/consistency/local_gen'].append(
-                File.from_stream(csv_buffer, extension='csv'))
+                csv_buffer = StringIO()
+                loc_df.to_csv(csv_buffer, index=False)
+                model.trainer.logger.experiment['dataframes/consistency/local_gen'].append(
+                    File.from_stream(csv_buffer, extension='csv'))
 
-            model.trainer.logger.experiment['metrics/consistency/global_generation_consistency_per_feature'].append(
-                File.from_content(table1, extension='txt'))
-            model.trainer.logger.experiment['metrics/consistency/local_generation_consistency_per_feature'].append(
-                File.from_content(table2, extension='txt'))
+                model.trainer.logger.experiment['metrics/consistency/global_generation_consistency_per_feature'].append(
+                    File.from_content(table1, extension='txt'))
+                model.trainer.logger.experiment['metrics/consistency/local_generation_consistency_per_feature'].append(
+                    File.from_content(table2, extension='txt'))
 
-        model.log('metrics/consistency/global_gen_overall_score', global_consistency_score)
-        model.log('metrics/consistency/local_gen_overall_score', local_consistency_score)
+            model.log('metrics/consistency/global_gen_overall_score', global_consistency_score)
+            model.log('metrics/consistency/local_gen_overall_score', local_consistency_score)
+
+    except RuntimeError:
+        pass
 
 
 def compute_importance_gbt(x_train, y_train, x_test, y_test, classifier_type):
@@ -828,7 +846,7 @@ def compute_importance_gbt(x_train, y_train, x_test, y_test, classifier_type):
     return importance_matrix, train_acc, test_acc
 
 
-def predictor_based_metrics(model: KoopmanVAE, ZL, labels, map_label_to_idx, label_to_name_dict, classifier_type,
+def predictor_based_metrics(model, ZL, labels, map_label_to_idx, label_to_name_dict, classifier_type,
                             verbose=False, should_log_files=False):
     """
      This function takes a map between labels (features) and a subset of latent codes corresponding to the label.
@@ -877,13 +895,17 @@ def predictor_based_metrics(model: KoopmanVAE, ZL, labels, map_label_to_idx, lab
             # compute D_J
             modularity_j += (p * (np.log(p) / np.log(M)))  # get log with base M
 
-        if model.trainer is not None:
-            model.log(f"metrics/predictor/modularity_{label_to_name_dict[label]}", modularity_j)
+        try:
+            if model.trainer is not None:
+                model.log(f"metrics/predictor/modularity_{label_to_name_dict[label]}", modularity_j)
 
-        modularity_data.append({
-            "feature": label_to_name_dict[label],
-            "modularity_j": modularity_j
-        })
+            modularity_data.append({
+                "feature": label_to_name_dict[label],
+                "modularity_j": modularity_j
+            })
+
+        except RuntimeError:
+            pass
 
         # compute rho_j
         importance_weights = sum(R[j][i] for j in idx for i in range(M))
@@ -900,17 +922,21 @@ def predictor_based_metrics(model: KoopmanVAE, ZL, labels, map_label_to_idx, lab
         print(modularity_table)
         print(f'overall modularity score = {modularity_score}\n')
 
-    if model.trainer is not None:
-        if should_log_files:
-            # save dataframe as csv
-            csv_buffer = StringIO()
-            modularity_df.to_csv(csv_buffer, index=False)
-            model.trainer.logger.experiment['dataframes/predictor/modularity_per_feature'].append(
-                File.from_stream(csv_buffer, extension='csv'))
-            model.trainer.logger.experiment['metrics/predictor/modularity_per_feature'].append(
-                File.from_content(modularity_table, extension='txt'))
+    try:
+        if model.trainer is not None:
+            if should_log_files:
+                # save dataframe as csv
+                csv_buffer = StringIO()
+                modularity_df.to_csv(csv_buffer, index=False)
+                model.trainer.logger.experiment['dataframes/predictor/modularity_per_feature'].append(
+                    File.from_stream(csv_buffer, extension='csv'))
+                model.trainer.logger.experiment['metrics/predictor/modularity_per_feature'].append(
+                    File.from_content(modularity_table, extension='txt'))
 
-        model.log('metrics/predictor/overall_modularity', modularity_score)
+            model.log('metrics/predictor/overall_modularity', modularity_score)
+
+    except RuntimeError:
+        pass
 
     # --- computation of completeness score ---
     compactness_data = []
@@ -928,8 +954,12 @@ def predictor_based_metrics(model: KoopmanVAE, ZL, labels, map_label_to_idx, lab
             # compute C_J
             compactness_i += (p * (np.log(p) / np.log(d)))  # get log with base M
 
-        if model.trainer is not None:
-            model.log(f"metrics/predictor/compactness_{label_to_name_dict[label]}", compactness_i)
+        try:
+            if model.trainer is not None:
+                model.log(f"metrics/predictor/compactness_{label_to_name_dict[label]}", compactness_i)
+
+        except RuntimeError:
+            pass
 
         compactness_data.append({
             "feature": label_to_name_dict[label],
@@ -947,17 +977,21 @@ def predictor_based_metrics(model: KoopmanVAE, ZL, labels, map_label_to_idx, lab
         print(compactness_table)
         print(f'overall compactness score = {compactness_score}\n')
 
-    if model.trainer is not None:
-        if should_log_files:
-            # save dataframe as csv
-            csv_buffer = StringIO()
-            compactness_df.to_csv(csv_buffer, index=False)
-            model.trainer.logger.experiment['dataframes/predictor/compactness_per_feature'].append(
-                File.from_stream(csv_buffer, extension='csv'))
-            model.trainer.logger.experiment['metrics/predictor/compactness_per_feature'].append(
-                File.from_content(compactness_table, extension='txt'))
+    try:
+        if model.trainer is not None:
+            if should_log_files:
+                # save dataframe as csv
+                csv_buffer = StringIO()
+                compactness_df.to_csv(csv_buffer, index=False)
+                model.trainer.logger.experiment['dataframes/predictor/compactness_per_feature'].append(
+                    File.from_stream(csv_buffer, extension='csv'))
+                model.trainer.logger.experiment['metrics/predictor/compactness_per_feature'].append(
+                    File.from_content(compactness_table, extension='txt'))
 
-        model.log('metrics/predictor/overall_compactness', compactness_score)
+            model.log('metrics/predictor/overall_compactness', compactness_score)
+
+    except RuntimeError:
+        pass
 
     # --- compute explicitness score ---
     # use losses from classifiers to compute explicitness score
@@ -967,9 +1001,13 @@ def predictor_based_metrics(model: KoopmanVAE, ZL, labels, map_label_to_idx, lab
         test_explicitness_j = test_score[label]
 
         # print(f"explicitness score for feature {label_to_name_dict[label]} = {explicitness_j}")
-        if model.trainer is not None:
-            model.log(f"metrics/predictor/train_explicitness_{label_to_name_dict[label]}", train_explicitness_j)
-            model.log(f"metrics/predictor/test_explicitness_{label_to_name_dict[label]}", test_explicitness_j)
+        try:
+            if model.trainer is not None:
+                model.log(f"metrics/predictor/train_explicitness_{label_to_name_dict[label]}", train_explicitness_j)
+                model.log(f"metrics/predictor/test_explicitness_{label_to_name_dict[label]}", test_explicitness_j)
+
+        except RuntimeError:
+            pass
 
         explicitness_data.append({
             "feature": label_to_name_dict[label],
@@ -986,15 +1024,19 @@ def predictor_based_metrics(model: KoopmanVAE, ZL, labels, map_label_to_idx, lab
         print(f'train explicitness score = {np.mean(train_score)}')
         print(f'test explicitness score = {np.mean(test_score)}\n')
 
-    if model.trainer is not None:
-        if should_log_files:
-            # save dataframe as csv
-            csv_buffer = StringIO()
-            explicitness_df.to_csv(csv_buffer, index=False)
-            model.trainer.logger.experiment['dataframes/predictor/explicitness_per_feature'].append(
-                File.from_stream(csv_buffer, extension='csv'))
-            model.trainer.logger.experiment['metrics/predictor/explicitness_per_feature:'].append(
-                File.from_content(explicitness_table, extension='txt'))
+    try:
+        if model.trainer is not None:
+            if should_log_files:
+                # save dataframe as csv
+                csv_buffer = StringIO()
+                explicitness_df.to_csv(csv_buffer, index=False)
+                model.trainer.logger.experiment['dataframes/predictor/explicitness_per_feature'].append(
+                    File.from_stream(csv_buffer, extension='csv'))
+                model.trainer.logger.experiment['metrics/predictor/explicitness_per_feature:'].append(
+                    File.from_content(explicitness_table, extension='txt'))
 
-        model.log('metrics/predictor/train_explicitness_score', np.mean(train_score))
-        model.log('metrics/predictor/test_explicitness_score', np.mean(test_score))
+            model.log('metrics/predictor/train_explicitness_score', np.mean(train_score))
+            model.log('metrics/predictor/test_explicitness_score', np.mean(test_score))
+
+    except RuntimeError:
+        pass

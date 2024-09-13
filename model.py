@@ -370,8 +370,10 @@ class KoopmanVAE(L.LightningModule):
         self.dataset_dir_path = args.dataset_path
 
         # The two factor classifier.
+        project_working_directory = '/cs/cs_groups/azencot_group/inon/koopman_vae'
+
         self.two_factor_classifier = classifier_Sprite_all(args)
-        loaded_dict = torch.load(args.two_factor_classifier_path)
+        loaded_dict = torch.load(f'{project_working_directory}/judges/Sprite/sprite_judge.tar')
         self.two_factor_classifier.load_state_dict(loaded_dict['state_dict'])
 
         # Exclude from the model since we don't want to learn it.
@@ -379,8 +381,8 @@ class KoopmanVAE(L.LightningModule):
 
         # The multifactor classifier.
         self.multifactor_classifier = MultifactorSpritesClassifier(args)
-        loaded_dict = torch.load(args.multifactor_classifier_path)
-        self.multifactor_classifier.load_state_dict(loaded_dict['state_dict'])
+        loaded_dict = torch.load(f'{project_working_directory}/judges/Sprite/sprites_classifier.pth')
+        self.multifactor_classifier.load_state_dict(loaded_dict)
 
         # Exclude from the model since we don't want to learn it.
         self.exclude_classifier_from_model(self.multifactor_classifier)
@@ -389,9 +391,13 @@ class KoopmanVAE(L.LightningModule):
         self.prior_sampling = args.prior_sampling
 
         # Multifactor exploration types and classifiers.
-        self.multifactor_exploration_type = args.multifactor_exploration_type
-        self.multifactor_classifier_type = args.multifactor_classifier_type
-        self.multifactor_dci_classifier_type = args.multifactor_dci_classifier_type
+        # self.multifactor_exploration_type = args.multifactor_exploration_type
+        # self.multifactor_classifier_type = args.multifactor_classifier_type
+        # self.multifactor_dci_classifier_type = args.multifactor_dci_classifier_type
+
+        self.multifactor_exploration_type = 'supervised'
+        self.multifactor_classifier_type = 'gradient_boost'
+        self.multifactor_dci_classifier_type = 'gradient_boost'
 
         # Init the model's weights.
         self.apply(init_weights)
@@ -1020,3 +1026,4 @@ class KoopmanVAE(L.LightningModule):
 
         # Decode the latent variable and return.
         return self.decode(z_prior)
+

@@ -24,7 +24,7 @@ class MultifactorMetricsLogger(Callback):
 
     @staticmethod
     @rank_zero_only
-    def calculate_and_log_metrics(model: KoopmanVAE, multifactor_classifier: MultifactorSpritesClassifier,
+    def calculate_and_log_metrics(model, multifactor_classifier: MultifactorSpritesClassifier,
                                   label_to_name_dict: dict, multifactor_dci_classifier_type: str,
                                   multifactor_exploration_type: str, multifactor_classifier_type: str, verbose=False,
                                   should_log_files=False):
@@ -33,9 +33,14 @@ class MultifactorMetricsLogger(Callback):
 
         # Extract the latent codes from the model and check the output.
         ZL = extract_latent_code(model, x)
-        if ZL is None and model.trainer is not None:
-            model.trainer.should_stop = True
-            return
+
+        try:
+            if ZL is None and model.trainer is not None:
+                model.trainer.should_stop = True
+                return
+
+        except RuntimeError:
+            pass
 
         # Get the mappings of the labels to subset of indices.
         map_label_to_idx = get_mappings(ZL, labels, multifactor_exploration_type,
@@ -54,7 +59,7 @@ class MultifactorMetricsLogger(Callback):
                                 should_log_files=should_log_files)
 
     @rank_zero_only
-    def on_validation_epoch_end(self, trainer: Trainer, model: KoopmanVAE) -> None:
+    def on_validation_epoch_end(self, trainer: Trainer, model) -> None:
         self.calculate_and_log_metrics(model, model.multifactor_classifier,
                                        model.multifactor_classifier.LABEL_TO_NAME_DICT,
                                        model.multifactor_dci_classifier_type, model.multifactor_exploration_type,
